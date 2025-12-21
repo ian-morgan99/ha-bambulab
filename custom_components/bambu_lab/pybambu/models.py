@@ -3205,7 +3205,7 @@ class SpaghettiDetector:
     - Mid-air extrusion
     
     Method:
-    - Converts images to edge maps using Sobel-like edge detection
+    - Converts images to edge maps using PIL's FIND_EDGES filter
     - Compares edge density between current and baseline images
     - Detects sudden non-rigid growth patterns
     - Tracks changes over multiple frames to reduce false positives
@@ -3287,10 +3287,12 @@ class SpaghettiDetector:
             threshold = 30
             binary = edge_map.point(lambda x: 255 if x > threshold else 0)
             
-            # Count white pixels (edges)
-            pixels = list(binary.getdata())
-            edge_pixels = sum(1 for p in pixels if p > 0)
-            total_pixels = len(pixels)
+            # Use histogram for efficient pixel counting
+            histogram = binary.histogram()
+            # histogram[0] contains count of black pixels (0)
+            # histogram[255] contains count of white pixels (255)
+            edge_pixels = histogram[255] if len(histogram) > 255 else 0
+            total_pixels = binary.size[0] * binary.size[1]
             
             density = edge_pixels / total_pixels if total_pixels > 0 else 0.0
             return density
@@ -3396,6 +3398,11 @@ class SpaghettiDetector:
     def is_alert_active(self) -> bool:
         """Return True if a spaghetti alert is currently active."""
         return self._alert_triggered
+    
+    @property
+    def is_initial_detection(self) -> bool:
+        """Return True if this is the initial detection (cooldown just started)."""
+        return self._alert_triggered and self._cooldown_counter == self._alert_cooldown_layers
         
     @property
     def is_enabled(self) -> bool:

@@ -754,8 +754,8 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             )
             
             # Fire device trigger event if newly detected
-            if alert_active and device.spaghetti_detector._cooldown_counter == device.spaghetti_detector._alert_cooldown_layers:
-                # Only fire event on initial detection (when cooldown just started)
+            if device.spaghetti_detector.is_initial_detection:
+                # Only fire event on initial detection
                 dev_reg = device_registry.async_get(self._hass)
                 hadevice = dev_reg.async_get_device(identifiers={(DOMAIN, device.info.serial)})
                 
