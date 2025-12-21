@@ -244,6 +244,9 @@
       },
       "extruder_filament_state": {
         "name": "Extruder filament state"
+      },
+      "spaghetti_detection": {
+        "name": "Spaghetti Detection Alert"
       }
     },
     "button": {

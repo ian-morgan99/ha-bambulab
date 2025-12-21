@@ -211,6 +211,14 @@ PRINTER_BINARY_SENSORS: tuple[BambuLabBinarySensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         is_on_fn=lambda self: self.coordinator.get_model().info.is_hybrid_mode_blocking,
     ),
+    BambuLabBinarySensorEntityDescription(
+        key="spaghetti_detection",
+        translation_key="spaghetti_detection",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        is_on_fn=lambda self: self.coordinator.get_model().spaghetti_detector.is_alert_active,
+        exists_fn=lambda coordinator: coordinator.get_model().supports_feature(Features.CAMERA_IMAGE),
+    ),
 )
 
 PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
