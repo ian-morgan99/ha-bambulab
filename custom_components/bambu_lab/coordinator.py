@@ -753,6 +753,21 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
                 current_layer
             )
             
+            # Fire device trigger event if newly detected
+            if alert_active and device.spaghetti_detector._cooldown_counter == device.spaghetti_detector._alert_cooldown_layers:
+                # Only fire event on initial detection (when cooldown just started)
+                dev_reg = device_registry.async_get(self._hass)
+                hadevice = dev_reg.async_get_device(identifiers={(DOMAIN, device.info.serial)})
+                
+                event_data = {
+                    "device_id": hadevice.id,
+                    "name": self.config_entry.options.get('name', ''),
+                    "type": "event_spaghetti_detected",
+                    "layer": current_layer,
+                }
+                LOGGER.warning(f"EVENT: Spaghetti detected at layer {current_layer}")
+                self._hass.bus.async_fire(f"{DOMAIN}_event", event_data)
+            
             # Update data to refresh binary sensor
             self._update_data()
 
