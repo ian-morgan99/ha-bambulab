@@ -1635,7 +1635,9 @@ class PrintJob:
                     filename = os.path.basename(timelapse_path)
                     filename_without_extension, _ = os.path.splitext(filename)
                     thumbnail_filename = f"{filename_without_extension}.jpg"
-                    thumbnail_path = os.path.join(os.path.dirname(timelapse_path), 'thumbnail', thumbnail_filename)
+                    # Use forward slashes for FTP paths
+                    dirname = timelapse_path.rsplit('/', 1)[0] if '/' in timelapse_path else ''
+                    thumbnail_path = f"{dirname}/thumbnail/{thumbnail_filename}"
                     try:
                         ftp.delete(thumbnail_path)
                         LOGGER.debug(f"Incognito mode: Deleted thumbnail at '{thumbnail_path}'")
@@ -1655,7 +1657,6 @@ class PrintJob:
                     
                     # Try to delete associated files (.gcode, .jpg, .png, .slice_info.config)
                     filename_without_extension, _ = os.path.splitext(model_path)
-                    directory_path = os.path.dirname(model_path)
                     associated_extensions = ['.gcode', '.jpg', '.png', '.slice_info.config']
                     for ext in associated_extensions:
                         assoc_file_path = f"{filename_without_extension}{ext}"

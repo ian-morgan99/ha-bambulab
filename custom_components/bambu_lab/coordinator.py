@@ -681,9 +681,8 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         self.get_model().print_job._download_timelapse()
         return True
 
-    def get_latest_timelapse_url(self) -> str:
-        """Get the URL of the latest timelapse video."""
-        import asyncio
+    def _get_latest_timelapse_file(self) -> Optional[Dict[str, Any]]:
+        """Get the latest timelapse file data."""
         try:
             files = asyncio.run_coroutine_threadsafe(
                 self.get_cached_files('timelapse'),
@@ -693,39 +692,34 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             if files:
                 # Sort by modification time, newest first
                 files.sort(key=lambda x: x['modified'], reverse=True)
-                latest = files[0]
-                # Convert absolute path to media URL
-                # /config/www/media/ha-bambulab/{serial}/timelapse/video.mp4 -> /media/ha-bambulab/{serial}/timelapse/video.mp4
-                path = latest['path']
-                if '/www/media/' in path:
-                    media_path = path.split('/www/media/')[1]
-                    return f"/media/{media_path}"
-                return path
+                return files[0]
         except Exception as e:
             LOGGER.debug(f"Error getting latest timelapse: {e}")
         return None
 
+    def get_latest_timelapse_url(self) -> str:
+        """Get the URL of the latest timelapse video."""
+        latest = self._get_latest_timelapse_file()
+        if latest:
+            # Convert absolute path to media URL
+            # /config/www/media/ha-bambulab/{serial}/timelapse/video.mp4 -> /media/ha-bambulab/{serial}/timelapse/video.mp4
+            path = latest['path']
+            if '/www/media/' in path:
+                media_path = path.split('/www/media/')[1]
+                return f"/media/{media_path}"
+            return path
+        return None
+
     def get_latest_timelapse_attributes(self) -> dict:
         """Get attributes for the latest timelapse."""
-        import asyncio
-        try:
-            files = asyncio.run_coroutine_threadsafe(
-                self.get_cached_files('timelapse'),
-                self._eventloop
-            ).result(timeout=5)
-            
-            if files:
-                # Sort by modification time, newest first
-                files.sort(key=lambda x: x['modified'], reverse=True)
-                latest = files[0]
-                return {
-                    'file_name': latest.get('name'),
-                    'file_size': latest.get('size'),
-                    'modified': latest.get('modified'),
-                    'thumbnail': latest.get('thumbnail_url'),
-                }
-        except Exception as e:
-            LOGGER.debug(f"Error getting latest timelapse attributes: {e}")
+        latest = self._get_latest_timelapse_file()
+        if latest:
+            return {
+                'file_name': latest.get('name'),
+                'file_size': latest.get('size'),
+                'modified': latest.get('modified'),
+                'thumbnail': latest.get('thumbnail_url'),
+            }
         return {}
 
     async def _async_update_data(self):
