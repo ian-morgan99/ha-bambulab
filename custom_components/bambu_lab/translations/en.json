@@ -610,6 +610,9 @@
       "serial": {
         "name": "Serial number"
       },
+      "latest_timelapse": {
+        "name": "Latest timelapse"
+      },
       "humidity_index": {
         "name": "Humidity index"
       },
