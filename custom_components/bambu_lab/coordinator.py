@@ -293,6 +293,8 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
                 result = self._service_call_filament_drying(data)
             case "stop_filament_drying":
                 result = self._service_call_filament_drying(data)
+            case "download_timelapse":
+                result = self._service_call_download_timelapse(data)
             case _:
                 LOGGER.error(f"Unknown service call: {data}")
 
@@ -672,6 +674,12 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         command["print"]["subtask_name"] = os.path.basename(filepath)
 
         self.client.publish(command)
+
+    def _service_call_download_timelapse(self, data: dict):
+        """Service call to manually download the latest timelapse video."""
+        LOGGER.debug("Triggering manual timelapse download")
+        self.get_model().print_job._download_timelapse()
+        return True
 
     async def _async_update_data(self):
         LOGGER.debug(f"_async_update_data() called")

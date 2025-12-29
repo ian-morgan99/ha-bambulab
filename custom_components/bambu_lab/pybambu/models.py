@@ -1152,6 +1152,9 @@ class PrintJob:
                 self._download_timelapse()
                 timelapseDownloaded = True
             self._client.callback("event_print_finished")
+            # Handle incognito mode - delete files after print completion
+            if self._client._incognito_mode:
+                self._delete_last_print_files()
 
         if currently_idle and not previously_idle and previous_gcode_state != "unknown":
             if self.start_time != None:
@@ -1599,6 +1602,79 @@ class PrintJob:
         self.prune_timelapse_files()
 
         LOGGER.debug(f"Done downloading timelapse by FTP. Elapsed time = {(end_time-start_time).seconds}s") 
+
+    def _delete_last_print_files(self):
+        """Delete the latest timelapse video and model files from SD card when incognito mode is enabled"""
+        if self._client._test_mode:
+            return
+        if not self._client.ftp_enabled:
+            return
+        
+        thread = threading.Thread(target=self._async_delete_last_print_files)
+        thread.start()
+    
+    def _async_delete_last_print_files(self):
+        current_thread = threading.current_thread()
+        current_thread.setName(f"{self._client._device.info.device_type}-FTP-DELETE-{threading.get_native_id()}")
+        start_time = datetime.now()
+        LOGGER.debug(f"Incognito mode: Deleting last print files via FTP")
+        
+        try:
+            # Open the FTP connection
+            ftp = self._client.ftp_connection()
+            
+            # Delete latest timelapse video and thumbnail
+            video_extensions = ['.mp4', '.avi']
+            timelapse_path = self._find_latest_file(ftp, ['/timelapse'], video_extensions)
+            if timelapse_path is not None:
+                try:
+                    LOGGER.debug(f"Incognito mode: Deleting timelapse at '{timelapse_path}'")
+                    ftp.delete(timelapse_path)
+                    
+                    # Try to delete associated thumbnail
+                    filename = os.path.basename(timelapse_path)
+                    filename_without_extension, _ = os.path.splitext(filename)
+                    thumbnail_filename = f"{filename_without_extension}.jpg"
+                    thumbnail_path = os.path.join(os.path.dirname(timelapse_path), 'thumbnail', thumbnail_filename)
+                    try:
+                        ftp.delete(thumbnail_path)
+                        LOGGER.debug(f"Incognito mode: Deleted thumbnail at '{thumbnail_path}'")
+                    except Exception as e:
+                        LOGGER.debug(f"Incognito mode: Could not delete thumbnail '{thumbnail_path}': {e}")
+                except ftplib.error_perm as e:
+                    LOGGER.debug(f"Incognito mode: Failed to delete timelapse at '{timelapse_path}': {e}")
+                except Exception as e:
+                    LOGGER.debug(f"Incognito mode: Unexpected exception deleting timelapse at '{timelapse_path}': {type(e)} Args: {e}")
+            
+            # Delete latest model file and associated files
+            model_path = self._find_latest_file(ftp, self.ftp_search_paths, ['.3mf'])
+            if model_path is not None:
+                try:
+                    LOGGER.debug(f"Incognito mode: Deleting model at '{model_path}'")
+                    ftp.delete(model_path)
+                    
+                    # Try to delete associated files (.gcode, .jpg, .png, .slice_info.config)
+                    filename_without_extension, _ = os.path.splitext(model_path)
+                    directory_path = os.path.dirname(model_path)
+                    associated_extensions = ['.gcode', '.jpg', '.png', '.slice_info.config']
+                    for ext in associated_extensions:
+                        assoc_file_path = f"{filename_without_extension}{ext}"
+                        try:
+                            ftp.delete(assoc_file_path)
+                            LOGGER.debug(f"Incognito mode: Deleted associated file '{assoc_file_path}'")
+                        except Exception:
+                            pass  # File may not exist, that's okay
+                except ftplib.error_perm as e:
+                    LOGGER.debug(f"Incognito mode: Failed to delete model at '{model_path}': {e}")
+                except Exception as e:
+                    LOGGER.debug(f"Incognito mode: Unexpected exception deleting model at '{model_path}': {type(e)} Args: {e}")
+            
+            ftp.quit()
+            
+            end_time = datetime.now()
+            LOGGER.debug(f"Incognito mode: Done deleting files via FTP. Elapsed time = {(end_time-start_time).seconds}s")
+        except Exception as e:
+            LOGGER.error(f"Incognito mode: Error during file deletion: {type(e)} Args: {e}")
 
     def _update_task_data(self):
         self._loaded_model_data = True

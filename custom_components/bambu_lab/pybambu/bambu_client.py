@@ -367,6 +367,7 @@ class BambuClient:
             # We always cache at least one model as we use that to avoid redownloading from ftp on startup.
             self._print_cache_count = 1
         self._timelapse_cache_count = max(-1, int(config.get('timelapse_cache_count', 0)))
+        self._incognito_mode = config.get('incognito_mode', False)
         self._disable_ssl_verify = config.get('disable_ssl_verify', False)
         self._cache_path = config.get('file_cache_path', f'/config/www/media/ha-bambulab/{self._serial}')
 
