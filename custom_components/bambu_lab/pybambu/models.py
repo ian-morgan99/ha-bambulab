@@ -1582,7 +1582,9 @@ class PrintJob:
                     filename = os.path.basename(file_path)
                     filename_without_extension, _ = os.path.splitext(filename)
                     thumbnail_filename = f"{filename_without_extension}.jpg"
-                    thumbnail_path = os.path.join(os.path.dirname(file_path), 'thumbnail', thumbnail_filename)
+                    # Use forward slashes for FTP paths
+                    dirname = file_path.rsplit('/', 1)[0] if '/' in file_path else ''
+                    thumbnail_path = f"{dirname}/thumbnail/{thumbnail_filename}"
                     thumbnail_local_path = os.path.join(os.path.dirname(local_file_path), thumbnail_filename)
                     with open(thumbnail_local_path, 'wb') as f:
                         LOGGER.info(f"Downloading '{thumbnail_path}'")

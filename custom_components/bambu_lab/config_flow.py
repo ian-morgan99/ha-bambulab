@@ -869,6 +869,7 @@ class BambuOptionsFlowHandler(config_entries.OptionsFlow):
         default_print_cache_count = self._config_entry.options.get('print_cache_count', "100") if user_input is None else user_input['print_cache_count']
         default_timelapse_cache_count = self._config_entry.options.get('timelapse_cache_count', "1") if user_input is None else user_input['timelapse_cache_count']
         default_usage_hours = str(self._config_entry.options.get('usage_hours', 0)) if user_input is None else user_input['usage_hours']
+        default_incognito_mode = self._config_entry.options.get('incognito_mode', False) if user_input is None else user_input.get('incognito_mode', False)
         default_disable_ssl_verify = self._config_entry.options.get('disable_ssl_verify', False) if user_input is None else user_input.get('advanced', {}).get('disable_ssl_verify', self._config_entry.options.get('disable_ssl_verify', ''))
         default_enable_firmware_update = self._config_entry.options.get('enable_firmware_update', False) if user_input is None else user_input.get('advanced', {}).get('enable_firmware_update', self._config_entry.options.get('enable_firmware_update', ''))
 
@@ -967,6 +968,7 @@ class BambuOptionsFlowHandler(config_entries.OptionsFlow):
         default_print_cache_count = self._config_entry.options.get('print_cache_count', "100") if user_input is None else user_input['print_cache_count']
         default_timelapse_cache_count = self._config_entry.options.get('timelapse_cache_count', "1") if user_input is None else user_input['timelapse_cache_count']
         default_usage_hours = str(self._config_entry.options.get('usage_hours', 0)) if user_input is None else user_input['usage_hours']
+        default_incognito_mode = self._config_entry.options.get('incognito_mode', False) if user_input is None else user_input.get('incognito_mode', False)
         default_disable_ssl_verify = self._config_entry.options.get('disable_ssl_verify', False) if user_input is None else user_input.get('advanced', {}).get('disable_ssl_verify', self._config_entry.options.get('disable_ssl_verify', ''))
         default_enable_firmware_update = self._config_entry.options.get('enable_firmware_update', False) if user_input is None else user_input.get('advanced', {}).get('enable_firmware_update', self._config_entry.options.get('enable_firmware_update', ''))
 
