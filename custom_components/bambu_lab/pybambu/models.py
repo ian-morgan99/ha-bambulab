@@ -1625,8 +1625,12 @@ class PrintJob:
         # Calculate the deletion threshold time (10 minutes before print start)
         deletion_threshold = None
         if self.start_time is not None:
-            deletion_threshold = self.start_time - timedelta(minutes=10)
-            LOGGER.debug(f"Incognito mode: Will delete files modified after {deletion_threshold}")
+            # self.start_time is UTC timezone-aware, convert to local time for FTP comparison
+            # FTP timestamps are in the printer's local time (naive datetime)
+            deletion_threshold_utc = self.start_time - timedelta(minutes=10)
+            # Convert to local time by getting the local timezone offset
+            deletion_threshold = deletion_threshold_utc.astimezone().replace(tzinfo=None)
+            LOGGER.debug(f"Incognito mode: Will delete files modified after {deletion_threshold} (local time)")
         else:
             LOGGER.warning("Incognito mode: Print start time is None, cannot determine which files to delete")
             return
@@ -1667,20 +1671,20 @@ class PrintJob:
                             timestamp_str, filename = match.groups()
                             _, extension = os.path.splitext(filename)
                             if extension in extensions:
-                                # Parse timestamp without year
+                                # Parse timestamp without year (local printer time, not UTC)
                                 timestamp = datetime.strptime(timestamp_str, '%b %d %H:%M')
-                                timestamp = timestamp.replace(tzinfo=timezone.utc)
-                                utc_time_now = datetime.now().astimezone(timezone.utc)
+                                current_time = datetime.now()
                                 
                                 # Initially assume current year, then adjust if needed
-                                timestamp = timestamp.replace(year=utc_time_now.year)
-                                delta = timestamp - utc_time_now
+                                timestamp = timestamp.replace(year=current_time.year)
+                                delta = timestamp - current_time
+                                # Use 190 days (slightly more than 6 months) to safely handle year boundary cases
                                 six_months = timedelta(days=190)
                                 
                                 if delta > six_months:
-                                    timestamp = timestamp.replace(year=utc_time_now.year - 1)
+                                    timestamp = timestamp.replace(year=current_time.year - 1)
                                 elif delta < -six_months:
-                                    timestamp = timestamp.replace(year=utc_time_now.year + 1)
+                                    timestamp = timestamp.replace(year=current_time.year + 1)
                                 
                                 file_list.append((timestamp, f"{folder}/{filename}" if folder != '/' else f"/{filename}"))
                             return
@@ -1690,8 +1694,8 @@ class PrintJob:
                             timestamp_str, filename = match.groups()
                             _, extension = os.path.splitext(filename)
                             if extension in extensions:
+                                # Parse timestamp with year (local printer time, not UTC)
                                 timestamp = datetime.strptime(timestamp_str, '%b %d %Y')
-                                timestamp = timestamp.replace(tzinfo=timezone.utc)
                                 file_list.append((timestamp, f"{folder}/{filename}" if folder != '/' else f"/{filename}"))
                     
                     # List directory contents

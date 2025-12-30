@@ -689,7 +689,7 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         """Get the latest timelapse file data."""
         # Ensure we have a valid event loop before scheduling the coroutine
         event_loop = getattr(self, "_eventloop", None)
-        if event_loop is None or getattr(event_loop, "is_closed", lambda: False)():
+        if event_loop is None or (hasattr(event_loop, 'is_closed') and event_loop.is_closed()):
             LOGGER.debug("No valid event loop available for retrieving latest timelapse")
             return None
         try:
