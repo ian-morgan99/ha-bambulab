@@ -407,6 +407,7 @@ class BambuLabFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                             "usage_hours": float(user_input['usage_hours']),
                             "disable_ssl_verify": user_input['advanced']['disable_ssl_verify'],
                             "enable_firmware_update": user_input['advanced']['enable_firmware_update'],
+                            "incognito_mode": user_input.get('incognito_mode', False),
                             "force_ip": force_ip,
                     }
 
@@ -422,6 +423,7 @@ class BambuLabFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         default_print_cache_count = "100" if user_input is None else user_input['print_cache_count']
         default_timelapse_cache_count = "1" if user_input is None else user_input['timelapse_cache_count']
         default_usage_hours = "0" if user_input is None else user_input['usage_hours']
+        default_incognito_mode = False if user_input is None else user_input.get('incognito_mode', False)
         default_disable_ssl_verify = False if user_input is None else user_input.get('advanced', {}).get('disable_ssl_verify', '')
         default_enable_firmware_update = False if user_input is None else user_input.get('advanced', {}).get('enable_firmware_update', '')
 
@@ -434,6 +436,7 @@ class BambuLabFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         fields[vol.Optional('print_cache_count', default=str(default_print_cache_count))] = NUMBER_SELECTOR
         fields[vol.Optional('timelapse_cache_count', default=str(default_timelapse_cache_count))] = NUMBER_SELECTOR
         fields[vol.Optional('usage_hours', default=default_usage_hours)] = NUMBER_SELECTOR
+        fields[vol.Optional('incognito_mode', default=default_incognito_mode)] = BOOLEAN_SELECTOR
         fields[vol.Required('advanced')] = section(
             vol.Schema({
                 vol.Required('disable_ssl_verify', default=default_disable_ssl_verify): BOOLEAN_SELECTOR,
@@ -490,6 +493,7 @@ class BambuLabFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         "usage_hours": float(user_input['usage_hours']),
                         "disable_ssl_verify": user_input['advanced']['disable_ssl_verify'],
                         "enable_firmware_update": user_input['advanced']['enable_firmware_update'],
+                        "incognito_mode": user_input.get('incognito_mode', False),
                         "force_ip": (user_input['host'] != bambu.get_device().info.ip_address),
                 }
 
@@ -518,6 +522,7 @@ class BambuLabFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         default_print_cache_count = "100" if user_input is None else int(user_input['print_cache_count'])
         default_timelapse_cache_count = "1" if user_input is None else int(user_input['timelapse_cache_count'])
         default_usage_hours = "0" if user_input is None else user_input['usage_hours']
+        default_incognito_mode = False if user_input is None else user_input.get('incognito_mode', False)
         default_disable_ssl_verify = False if user_input is None else user_input.get('advanced', {}).get('disable_ssl_verify', '')
         default_enable_firmware_update = False if user_input is None else user_input.get('advanced', {}).get('enable_firmware_update', '')
 
@@ -529,6 +534,7 @@ class BambuLabFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         fields[vol.Optional('print_cache_count', default=str(default_print_cache_count))] = NUMBER_SELECTOR
         fields[vol.Optional('timelapse_cache_count', default=str(default_timelapse_cache_count))] = NUMBER_SELECTOR
         fields[vol.Optional('usage_hours', default=default_usage_hours)] = NUMBER_SELECTOR
+        fields[vol.Optional('incognito_mode', default=default_incognito_mode)] = BOOLEAN_SELECTOR
         fields[vol.Required('advanced')] = section(
             vol.Schema({
                 vol.Required('disable_ssl_verify', default=default_disable_ssl_verify): BOOLEAN_SELECTOR,
@@ -832,6 +838,7 @@ class BambuOptionsFlowHandler(config_entries.OptionsFlow):
                     options["enable_firmware_update"] = user_input['advanced']['enable_firmware_update']
                     options["print_cache_count"] = max(-1, int(user_input['print_cache_count']))
                     options["timelapse_cache_count"] = max(-1, int(user_input['timelapse_cache_count']))
+                    options["incognito_mode"] = user_input.get('incognito_mode', False)
                     options["force_ip"] = force_ip
                     
                     title = device['dev_id']
@@ -862,6 +869,7 @@ class BambuOptionsFlowHandler(config_entries.OptionsFlow):
         default_print_cache_count = self._config_entry.options.get('print_cache_count', "100") if user_input is None else user_input['print_cache_count']
         default_timelapse_cache_count = self._config_entry.options.get('timelapse_cache_count', "1") if user_input is None else user_input['timelapse_cache_count']
         default_usage_hours = str(self._config_entry.options.get('usage_hours', 0)) if user_input is None else user_input['usage_hours']
+        default_incognito_mode = self._config_entry.options.get('incognito_mode', False) if user_input is None else user_input.get('incognito_mode', False)
         default_disable_ssl_verify = self._config_entry.options.get('disable_ssl_verify', False) if user_input is None else user_input.get('advanced', {}).get('disable_ssl_verify', self._config_entry.options.get('disable_ssl_verify', ''))
         default_enable_firmware_update = self._config_entry.options.get('enable_firmware_update', False) if user_input is None else user_input.get('advanced', {}).get('enable_firmware_update', self._config_entry.options.get('enable_firmware_update', ''))
 
@@ -875,6 +883,7 @@ class BambuOptionsFlowHandler(config_entries.OptionsFlow):
         fields[vol.Optional('print_cache_count', default=str(default_print_cache_count))] = NUMBER_SELECTOR
         fields[vol.Optional('timelapse_cache_count', default=str(default_timelapse_cache_count))] = NUMBER_SELECTOR
         fields[vol.Optional('usage_hours', default=default_usage_hours)] = NUMBER_SELECTOR
+        fields[vol.Optional('incognito_mode', default=default_incognito_mode)] = BOOLEAN_SELECTOR
         fields[vol.Required('advanced')] = section(
             vol.Schema({
                 vol.Required('disable_ssl_verify', default=default_disable_ssl_verify): BOOLEAN_SELECTOR,
@@ -927,6 +936,7 @@ class BambuOptionsFlowHandler(config_entries.OptionsFlow):
                 options["usage_hours"] = float(user_input['usage_hours'])
                 options["disable_ssl_verify"] = user_input['advanced']['disable_ssl_verify']
                 options["enable_firmware_update"] = user_input['advanced']['enable_firmware_update']
+                options["incognito_mode"] = user_input.get('incognito_mode', False)
                 options["force_ip"] = (user_input['host'] != bambu.get_device().info.ip_address)
 
                 title = self._config_entry.data['serial']
@@ -958,6 +968,7 @@ class BambuOptionsFlowHandler(config_entries.OptionsFlow):
         default_print_cache_count = self._config_entry.options.get('print_cache_count', "100") if user_input is None else user_input['print_cache_count']
         default_timelapse_cache_count = self._config_entry.options.get('timelapse_cache_count', "1") if user_input is None else user_input['timelapse_cache_count']
         default_usage_hours = str(self._config_entry.options.get('usage_hours', 0)) if user_input is None else user_input['usage_hours']
+        default_incognito_mode = self._config_entry.options.get('incognito_mode', False) if user_input is None else user_input.get('incognito_mode', False)
         default_disable_ssl_verify = self._config_entry.options.get('disable_ssl_verify', False) if user_input is None else user_input.get('advanced', {}).get('disable_ssl_verify', self._config_entry.options.get('disable_ssl_verify', ''))
         default_enable_firmware_update = self._config_entry.options.get('enable_firmware_update', False) if user_input is None else user_input.get('advanced', {}).get('enable_firmware_update', self._config_entry.options.get('enable_firmware_update', ''))
 
@@ -966,6 +977,7 @@ class BambuOptionsFlowHandler(config_entries.OptionsFlow):
         fields[vol.Optional('print_cache_count', default=str(default_print_cache_count))] = NUMBER_SELECTOR
         fields[vol.Optional('timelapse_cache_count', default=str(default_timelapse_cache_count))] = NUMBER_SELECTOR
         fields[vol.Optional('usage_hours', default=default_usage_hours)] = NUMBER_SELECTOR
+        fields[vol.Optional('incognito_mode', default=default_incognito_mode)] = BOOLEAN_SELECTOR
         fields[vol.Required('advanced')] = section(
             vol.Schema({
                 vol.Required('disable_ssl_verify', default=default_disable_ssl_verify): BOOLEAN_SELECTOR,

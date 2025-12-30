@@ -293,6 +293,8 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
                 result = self._service_call_filament_drying(data)
             case "stop_filament_drying":
                 result = self._service_call_filament_drying(data)
+            case "download_timelapse":
+                result = self._service_call_download_timelapse(data)
             case _:
                 LOGGER.error(f"Unknown service call: {data}")
 
@@ -672,6 +674,64 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         command["print"]["subtask_name"] = os.path.basename(filepath)
 
         self.client.publish(command)
+
+    def _service_call_download_timelapse(self, data: dict):
+        """Service call to manually download the latest timelapse video."""
+        LOGGER.debug("Triggering manual timelapse download")
+        model = self.get_model()
+        if not model or not getattr(model, "print_job", None):
+            LOGGER.debug("Timelapse download aborted: model or print_job not available")
+            return False
+        model.print_job._download_timelapse()
+        return True
+
+    def _get_latest_timelapse_file(self) -> Optional[Dict[str, Any]]:
+        """Get the latest timelapse file data."""
+        # Ensure we have a valid event loop before scheduling the coroutine
+        event_loop = getattr(self, "_eventloop", None)
+        if event_loop is None or (hasattr(event_loop, 'is_closed') and event_loop.is_closed()):
+            LOGGER.debug("No valid event loop available for retrieving latest timelapse")
+            return None
+        try:
+            files = asyncio.run_coroutine_threadsafe(
+                self.get_cached_files('timelapse'),
+                event_loop
+            ).result(timeout=5)
+            
+            if files:
+                # Sort by modification time, newest first
+                files.sort(key=lambda x: x['modified'], reverse=True)
+                return files[0]
+        except Exception as e:
+            LOGGER.debug(f"Error getting latest timelapse: {e}")
+        return None
+
+    def get_latest_timelapse_url(self) -> str:
+        """Get the URL of the latest timelapse video."""
+        try:
+            latest = self._get_latest_timelapse_file()
+            if latest:
+                # latest['path'] is already of the form 'serial/timelapse/video.mp4'
+                # Build the media URL directly
+                return f"/media/ha-bambulab/{latest['path']}"
+        except Exception as e:
+            LOGGER.debug(f"Error getting latest timelapse URL: {e}")
+        return ""
+
+    def get_latest_timelapse_attributes(self) -> dict:
+        """Get attributes for the latest timelapse."""
+        try:
+            latest = self._get_latest_timelapse_file()
+            if latest:
+                return {
+                    'file_name': latest.get('filename'),
+                    'file_size': latest.get('size'),
+                    'modified': latest.get('modified'),
+                    'thumbnail': latest.get('thumbnail_path'),
+                }
+        except Exception as e:
+            LOGGER.debug(f"Error getting latest timelapse attributes: {e}")
+        return {}
 
     async def _async_update_data(self):
         LOGGER.debug(f"_async_update_data() called")

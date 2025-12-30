@@ -334,3 +334,14 @@ stop_filament_drying:
       selector:
         device:
           integration: bambu_lab
+
+download_timelapse:
+  name: Download Timelapse
+  description: Download the latest timelapse video from the SD card.
+  fields:
+    device_id:
+      name: Bambu Printer
+      required: true
+      selector:
+        device:
+          integration: bambu_lab

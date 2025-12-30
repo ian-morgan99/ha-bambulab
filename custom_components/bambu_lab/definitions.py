@@ -646,6 +646,15 @@ PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:identifier",
         value_fn=lambda self: self.coordinator.get_model().info.serial
+    ),
+    BambuLabSensorEntityDescription(
+        key="latest_timelapse",
+        translation_key="latest_timelapse",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:video",
+        value_fn=lambda self: self.coordinator.get_latest_timelapse_url(),
+        extra_attributes=lambda self: self.coordinator.get_latest_timelapse_attributes(),
+        exists_fn=lambda coordinator: coordinator.client.ftp_enabled
     )
 )
 
