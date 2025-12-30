@@ -60,6 +60,53 @@ NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
     ),
 )
 
+SPAGHETTI_DETECTION_NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
+    BambuLabNumberEntityDescription(
+        key="spaghetti_edge_density_threshold",
+        translation_key="spaghetti_edge_density_threshold",
+        icon="mdi:chart-line",
+        mode=NumberMode.SLIDER,
+        native_min_value=0.05,
+        native_max_value=0.50,
+        native_step=0.01,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.edge_density_threshold,
+        set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_edge_density_threshold(value),
+    ),
+    BambuLabNumberEntityDescription(
+        key="spaghetti_sudden_growth_threshold",
+        translation_key="spaghetti_sudden_growth_threshold",
+        icon="mdi:chart-bell-curve",
+        mode=NumberMode.SLIDER,
+        native_min_value=0.10,
+        native_max_value=0.50,
+        native_step=0.01,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.sudden_growth_threshold,
+        set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_sudden_growth_threshold(value),
+    ),
+    BambuLabNumberEntityDescription(
+        key="spaghetti_baseline_update_interval",
+        translation_key="spaghetti_baseline_update_interval",
+        icon="mdi:update",
+        mode=NumberMode.BOX,
+        native_min_value=1,
+        native_max_value=20,
+        native_step=1,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.baseline_update_interval,
+        set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_baseline_update_interval(value),
+    ),
+    BambuLabNumberEntityDescription(
+        key="spaghetti_alert_cooldown_layers",
+        translation_key="spaghetti_alert_cooldown_layers",
+        icon="mdi:timer-sand",
+        mode=NumberMode.BOX,
+        native_min_value=1,
+        native_max_value=10,
+        native_step=1,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.alert_cooldown_layers,
+        set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_alert_cooldown_layers(value),
+    ),
+)
+
 
 async def async_setup_entry(
         hass: HomeAssistant,
@@ -75,6 +122,11 @@ async def async_setup_entry(
 
     if not coordinator.get_model().info.is_hybrid_mode_blocking and not coordinator.get_model().print_fun.mqtt_signature_required:
         for description in NUMBERS:
+            async_add_entities([BambuLabNumber(coordinator, description, entry)])
+    
+    # Add spaghetti detection threshold numbers if camera is available
+    if coordinator.get_model().supports_feature(Features.CAMERA_IMAGE):
+        for description in SPAGHETTI_DETECTION_NUMBERS:
             async_add_entities([BambuLabNumber(coordinator, description, entry)])
 
     LOGGER.debug("NUMBER::async_setup_entry DONE")

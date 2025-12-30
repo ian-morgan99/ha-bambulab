@@ -3408,6 +3408,47 @@ class SpaghettiDetector:
     def is_enabled(self) -> bool:
         """Return True if spaghetti detection is enabled."""
         return self._enabled
+    
+    # Threshold configuration properties
+    @property
+    def edge_density_threshold(self) -> float:
+        """Get the edge density threshold (0.0 to 1.0)."""
+        return self._edge_density_threshold
+    
+    def set_edge_density_threshold(self, value: float):
+        """Set the edge density threshold (0.0 to 1.0)."""
+        self._edge_density_threshold = max(0.0, min(1.0, value))
+        LOGGER.debug(f"Spaghetti detector edge density threshold set to {self._edge_density_threshold:.2f}")
+    
+    @property
+    def sudden_growth_threshold(self) -> float:
+        """Get the sudden growth threshold (0.0 to 1.0)."""
+        return self._sudden_growth_threshold
+    
+    def set_sudden_growth_threshold(self, value: float):
+        """Set the sudden growth threshold (0.0 to 1.0)."""
+        self._sudden_growth_threshold = max(0.0, min(1.0, value))
+        LOGGER.debug(f"Spaghetti detector sudden growth threshold set to {self._sudden_growth_threshold:.2f}")
+    
+    @property
+    def baseline_update_interval(self) -> int:
+        """Get the baseline update interval in layers."""
+        return self._baseline_update_interval
+    
+    def set_baseline_update_interval(self, value: int):
+        """Set the baseline update interval in layers."""
+        self._baseline_update_interval = max(1, min(100, int(value)))
+        LOGGER.debug(f"Spaghetti detector baseline update interval set to {self._baseline_update_interval} layers")
+    
+    @property
+    def alert_cooldown_layers(self) -> int:
+        """Get the alert cooldown in layers."""
+        return self._alert_cooldown_layers
+    
+    def set_alert_cooldown_layers(self, value: int):
+        """Set the alert cooldown in layers."""
+        self._alert_cooldown_layers = max(1, min(50, int(value)))
+        LOGGER.debug(f"Spaghetti detector alert cooldown set to {self._alert_cooldown_layers} layers")
 
 
 @dataclass

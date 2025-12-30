@@ -101,8 +101,17 @@ The spaghetti detection system analyzes chamber images on each layer change to d
 **Configuration:**
 - Use the "Spaghetti Detection" switch to enable/disable the feature
 - The feature requires camera images to be enabled
-- Detection threshold: 15% increase in edge density triggers an alert
-- Cooldown: 3 layers between alerts to reduce false positives
+- **Configurable Thresholds** (available as number entities):
+  - **Edge Density Threshold** (0.05-0.50, default 0.15): Percentage increase in edge density from baseline to trigger alert
+  - **Sudden Growth Threshold** (0.10-0.50, default 0.25): Percentage frame-to-frame increase to trigger alert
+  - **Baseline Update Interval** (1-20 layers, default 5): How often to update the baseline image
+  - **Alert Cooldown** (1-10 layers, default 3): Number of layers between alerts to reduce false positives
+
+**Tuning Tips:**
+- Increase edge density threshold (e.g., 0.20-0.25) if you get false positives on complex prints
+- Decrease edge density threshold (e.g., 0.10-0.12) for faster detection of obvious failures
+- Increase cooldown layers if you get repeated alerts for the same issue
+- Adjust baseline interval based on print complexity (longer for organic shapes)
 
 **Limitations:**
 - Won't detect minor under-extrusion
