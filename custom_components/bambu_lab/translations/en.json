@@ -629,6 +629,26 @@
       "latest_timelapse": {
         "name": "Latest timelapse"
       },
+      "spaghetti_current_edge_density": {
+        "name": "Spaghetti Detection: Current Edge Density",
+        "state_attributes": {
+          "baseline_density": {
+            "name": "Baseline edge density"
+          },
+          "edge_density_threshold": {
+            "name": "Edge density threshold"
+          },
+          "sudden_growth_threshold": {
+            "name": "Sudden growth threshold"
+          },
+          "difference_from_baseline": {
+            "name": "Difference from baseline"
+          },
+          "alert_active": {
+            "name": "Alert active"
+          }
+        }
+      },
       "humidity_index": {
         "name": "Humidity index"
       },

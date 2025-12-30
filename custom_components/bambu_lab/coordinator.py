@@ -800,36 +800,40 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
     
     def _check_spaghetti_detection(self):
         """Check for spaghetti/print failure on layer change."""
-        device = self.get_model()
-        current_layer = device.print_job.current_layer
-        
-        # Get current chamber image
-        image_bytes = device.chamber_image.get_image()
-        
-        if len(image_bytes) > 0 and current_layer > 0:
-            # Analyze the image for spaghetti
-            alert_active = device.spaghetti_detector.analyze_image_on_layer_change(
-                image_bytes, 
-                current_layer
-            )
+        try:
+            device = self.get_model()
+            current_layer = device.print_job.current_layer
             
-            # Fire device trigger event if newly detected
-            if device.spaghetti_detector.is_initial_detection:
-                # Only fire event on initial detection
-                dev_reg = device_registry.async_get(self._hass)
-                hadevice = dev_reg.async_get_device(identifiers={(DOMAIN, device.info.serial)})
+            # Get current chamber image
+            image_bytes = device.chamber_image.get_image()
+            
+            if len(image_bytes) > 0 and current_layer > 0:
+                # Analyze the image for spaghetti
+                alert_active = device.spaghetti_detector.analyze_image_on_layer_change(
+                    image_bytes, 
+                    current_layer
+                )
                 
-                event_data = {
-                    "device_id": hadevice.id,
-                    "name": self.config_entry.options.get('name', ''),
-                    "type": "event_spaghetti_detected",
-                    "layer": current_layer,
-                }
-                LOGGER.warning(f"EVENT: Spaghetti detected at layer {current_layer}")
-                self._hass.bus.async_fire(f"{DOMAIN}_event", event_data)
-            
-            # Update data to refresh binary sensor
-            self._update_data()
+                # Fire device trigger event if newly detected
+                if device.spaghetti_detector.is_initial_detection:
+                    # Only fire event on initial detection
+                    dev_reg = device_registry.async_get(self._hass)
+                    hadevice = dev_reg.async_get_device(identifiers={(DOMAIN, device.info.serial)})
+                    
+                    event_data = {
+                        "device_id": hadevice.id,
+                        "name": self.config_entry.options.get('name', ''),
+                        "type": "event_spaghetti_detected",
+                        "layer": current_layer,
+                    }
+                    LOGGER.warning(f"EVENT: Spaghetti detected at layer {current_layer}")
+                    self._hass.bus.async_fire(f"{DOMAIN}_event", event_data)
+                
+                # Update data to refresh binary sensor
+                self._update_data()
+        except Exception as e:
+            LOGGER.error(f"Error checking spaghetti detection: {e}", exc_info=True)
+            # Don't let errors in spaghetti detection crash the coordinator
 
     def _update_device_info(self):
         if not self._updatedDevice:

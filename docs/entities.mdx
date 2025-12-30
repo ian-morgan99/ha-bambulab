@@ -85,6 +85,7 @@ nextTitle: Device Triggers
 | Sensor              | Notes                                                      |
 | ------------------- | ---------------------------------------------------------- |
 | Spaghetti Detection Alert | Binary sensor that indicates potential print failure detected |
+| Spaghetti Detection: Current Edge Density | Sensor showing current edge density measurement (%) with attributes for baseline, thresholds, and comparison |
 
 The spaghetti detection system analyzes chamber images on each layer change to detect potential print failures including:
 - Spaghetti (thin, chaotic filament structures)
@@ -97,6 +98,28 @@ The spaghetti detection system analyzes chamber images on each layer change to d
 - Detects sudden non-rigid growth patterns that indicate failure
 - Updates baseline every 5 layers to adapt to normal print growth
 - Provides a binary sensor and device trigger for automation
+
+**Tunable Parameters:**
+The detection system can be fine-tuned using Number entities:
+- **Edge Density Threshold**: Percentage increase from baseline that triggers alert (default: 15%)
+- **Sudden Growth Threshold**: Frame-to-frame increase that triggers alert (default: 25%)
+- **Baseline Update Interval**: How often baseline is refreshed in layers (default: 5)
+- **Alert Cooldown**: Number of layers to wait before re-alerting (default: 3)
+
+**Monitoring Sensor:**
+The "Current Edge Density" sensor provides real-time visibility into the detection system:
+- **State**: Current edge density percentage
+- **Attributes**:
+  - `baseline_density`: The baseline edge density being compared against
+  - `edge_density_threshold`: Current threshold for baseline comparison
+  - `sudden_growth_threshold`: Current threshold for frame-to-frame comparison
+  - `difference_from_baseline`: How much current density differs from baseline
+  - `alert_active`: Whether an alert is currently active
+
+This sensor allows you to:
+- Monitor if your print is approaching detection thresholds
+- Adjust thresholds based on your specific prints
+- Create automations based on edge density trends
 
 **Configuration:**
 - Use the "Spaghetti Detection" switch to enable/disable the feature

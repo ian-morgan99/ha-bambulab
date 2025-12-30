@@ -663,6 +663,24 @@ PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
         value_fn=lambda self: self.coordinator.get_latest_timelapse_url(),
         extra_attributes=lambda self: self.coordinator.get_latest_timelapse_attributes(),
         exists_fn=lambda coordinator: coordinator.client.ftp_enabled
+    ),
+    BambuLabSensorEntityDescription(
+        key="spaghetti_current_edge_density",
+        translation_key="spaghetti_current_edge_density",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:chart-line",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=2,
+        value_fn=lambda self: round(self.coordinator.get_model().spaghetti_detector.current_edge_density * 100, 2),
+        extra_attributes=lambda self: {
+            "baseline_density": round(self.coordinator.get_model().spaghetti_detector.baseline_edge_density * 100, 2),
+            "edge_density_threshold": round(self.coordinator.get_model().spaghetti_detector.edge_density_threshold * 100, 2),
+            "sudden_growth_threshold": round(self.coordinator.get_model().spaghetti_detector.sudden_growth_threshold * 100, 2),
+            "difference_from_baseline": round((self.coordinator.get_model().spaghetti_detector.current_edge_density - self.coordinator.get_model().spaghetti_detector.baseline_edge_density) * 100, 2),
+            "alert_active": self.coordinator.get_model().spaghetti_detector.is_alert_active,
+        },
+        exists_fn=lambda coordinator: coordinator.get_model().supports_feature(Features.CAMERA_IMAGE),
     )
 )
 
