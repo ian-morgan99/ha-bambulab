@@ -1583,9 +1583,9 @@ class PrintJob:
                     filename = os.path.basename(file_path)
                     filename_without_extension, _ = os.path.splitext(filename)
                     thumbnail_filename = f"{filename_without_extension}.jpg"
-                    # Use forward slashes for FTP paths
+                    # Use os.path.join for FTP paths, then replace backslashes for cross-platform compatibility
                     dirname = file_path.rsplit('/', 1)[0] if '/' in file_path else ''
-                    thumbnail_path = f"{dirname}/thumbnail/{thumbnail_filename}"
+                    thumbnail_path = os.path.join(dirname, 'thumbnail', thumbnail_filename).replace('\\', '/')
                     thumbnail_local_path = os.path.join(os.path.dirname(local_file_path), thumbnail_filename)
                     with open(thumbnail_local_path, 'wb') as f:
                         LOGGER.info(f"Downloading '{thumbnail_path}'")
@@ -1686,7 +1686,9 @@ class PrintJob:
                                 elif delta < -six_months:
                                     timestamp = timestamp.replace(year=current_time.year + 1)
                                 
-                                file_list.append((timestamp, f"{folder}/{filename}" if folder != '/' else f"/{filename}"))
+                                # Use os.path.join for path construction, then replace backslashes
+                                full_path = os.path.join(folder, filename).replace('\\', '/')
+                                file_list.append((timestamp, full_path))
                             return
                         
                         match = re.match(pattern_without_time_just_year, line)
@@ -1696,7 +1698,9 @@ class PrintJob:
                             if extension in extensions:
                                 # Parse timestamp with year (local printer time, not UTC)
                                 timestamp = datetime.strptime(timestamp_str, '%b %d %Y')
-                                file_list.append((timestamp, f"{folder}/{filename}" if folder != '/' else f"/{filename}"))
+                                # Use os.path.join for path construction, then replace backslashes
+                                full_path = os.path.join(folder, filename).replace('\\', '/')
+                                file_list.append((timestamp, full_path))
                     
                     # List directory contents
                     ftp.retrlines(f'LIST {folder}', parse_line)

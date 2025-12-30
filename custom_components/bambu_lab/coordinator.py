@@ -708,23 +708,29 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
 
     def get_latest_timelapse_url(self) -> str:
         """Get the URL of the latest timelapse video."""
-        latest = self._get_latest_timelapse_file()
-        if latest:
-            # latest['path'] is already of the form 'serial/timelapse/video.mp4'
-            # Build the media URL directly
-            return f"/media/ha-bambulab/{latest['path']}"
+        try:
+            latest = self._get_latest_timelapse_file()
+            if latest:
+                # latest['path'] is already of the form 'serial/timelapse/video.mp4'
+                # Build the media URL directly
+                return f"/media/ha-bambulab/{latest['path']}"
+        except Exception as e:
+            LOGGER.debug(f"Error getting latest timelapse URL: {e}")
         return ""
 
     def get_latest_timelapse_attributes(self) -> dict:
         """Get attributes for the latest timelapse."""
-        latest = self._get_latest_timelapse_file()
-        if latest:
-            return {
-                'file_name': latest.get('filename'),
-                'file_size': latest.get('size'),
-                'modified': latest.get('modified'),
-                'thumbnail': latest.get('thumbnail_path'),
-            }
+        try:
+            latest = self._get_latest_timelapse_file()
+            if latest:
+                return {
+                    'file_name': latest.get('filename'),
+                    'file_size': latest.get('size'),
+                    'modified': latest.get('modified'),
+                    'thumbnail': latest.get('thumbnail_path'),
+                }
+        except Exception as e:
+            LOGGER.debug(f"Error getting latest timelapse attributes: {e}")
         return {}
 
     async def _async_update_data(self):
