@@ -52,6 +52,13 @@ FTP_SWITCH_DESCRIPTION = SwitchEntityDescription(
     entity_category=EntityCategory.CONFIG,
 )
 
+SPAGHETTI_DETECTION_SWITCH_DESCRIPTION = SwitchEntityDescription(
+    key="spaghetti_detection",
+    icon="mdi:alert-octagon",
+    translation_key="spaghetti_detection",
+    entity_category=EntityCategory.CONFIG,
+)
+
 
 async def async_setup_entry(
         hass: HomeAssistant,
@@ -70,6 +77,7 @@ async def async_setup_entry(
 
     if coordinator.get_model().supports_feature(Features.CAMERA_IMAGE):
         async_add_entities([BambuLabCameraImageSwitch(coordinator, entry)])
+        async_add_entities([BambuLabSpaghettiDetectionSwitch(coordinator, entry)])
 
     if not coordinator.get_model().print_fun.mqtt_signature_required:
         if coordinator.get_model().supports_feature(Features.PROMPT_SOUND):
@@ -214,3 +222,38 @@ class BambuLabPromptAirductModeSwitch(BambuLabSwitch):
         """Enable Heating/Filter Mode."""
         self.coordinator.get_model().info.set_airduct_mode(False)
 
+
+class BambuLabSpaghettiDetectionSwitch(BambuLabSwitch):
+    """BambuLab Spaghetti Detection Switch"""
+
+    entity_description = SPAGHETTI_DETECTION_SWITCH_DESCRIPTION
+
+    def __init__(
+            self,
+            coordinator: BambuDataUpdateCoordinator,
+            config_entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, config_entry)
+        self._attr_is_on = self.coordinator.get_model().spaghetti_detector.is_enabled
+        
+    @property
+    def icon(self) -> str:
+        """Return the icon for the switch."""
+        return "mdi:eye-check" if self.is_on else "mdi:eye-off"
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if entity is on."""
+        return self.coordinator.get_model().spaghetti_detector.is_enabled
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable spaghetti detection."""
+        self.coordinator.get_model().spaghetti_detector.enable()
+        self._attr_is_on = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable spaghetti detection."""
+        self.coordinator.get_model().spaghetti_detector.disable()
+        self._attr_is_on = False
+        self.async_write_ha_state()

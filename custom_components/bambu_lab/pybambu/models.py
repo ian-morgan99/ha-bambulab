@@ -16,8 +16,9 @@ from pathlib import Path
 from zipfile import ZipFile
 from typing import List, Union
 import xml.etree.ElementTree as ElementTree
-from PIL import Image
+from PIL import Image, ImageFilter
 import asyncio
+import io
 
 from .utils import (
     search,
@@ -90,6 +91,7 @@ class Device:
         self.cover_image = CoverImage(client = client)
         self.pick_image = PickImage(client = client)
         self.print_fun = PrintFun(client = client)
+        self.spaghetti_detector = SpaghettiDetector(client = client)
 
     def print_update(self, data) -> bool:
         send_event = False
@@ -1045,8 +1047,15 @@ class PrintJob:
         if old_subtask_name != self.subtask_name:
             LOGGER.debug(f"SUBTASK_NAME: {self.subtask_name}")
         self.file_type_icon = "mdi:file" if self.print_type != "cloud" else "mdi:cloud-outline"
+        old_current_layer = self.current_layer
         self.current_layer = data.get("layer_num", self.current_layer)
         self.total_layers = data.get("total_layer_num", self.total_layers)
+        
+        # Detect layer change and trigger spaghetti detection
+        if old_current_layer != self.current_layer and self.current_layer > 0:
+            LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}")
+            self._client.callback("event_layer_changed")
+        
         self.ams_mapping = data.get("ams_mapping", self.ams_mapping)
         self._skipped_objects = data.get("s_obj", self._skipped_objects)
 
@@ -1071,6 +1080,9 @@ class PrintJob:
 
         if previously_idle and not currently_idle:
             self._client.callback("event_print_started")
+            
+            # Reset spaghetti detector for new print
+            self._client._device.spaghetti_detector.reset()
 
             # Sometimes the download completes so fast we go from a prior print's 100% to 100% for the new print in one update.
             # Make sure we catch that case too. And Lan Mode never sets this - make sure we init it to 0.
@@ -3312,6 +3324,261 @@ class PickImage:
 
     def get_last_update_time(self) -> datetime:
         return self._image_last_updated
+
+
+class SpaghettiDetector:
+    """Detects potential print failures using edge-based change detection.
+    
+    This detector analyzes chamber images on each layer change to detect:
+    - Spaghetti (thin, chaotic filament structures)
+    - Detached prints (loss of bed adhesion)
+    - Mid-air extrusion
+    
+    Method:
+    - Converts images to edge maps using PIL's FIND_EDGES filter
+    - Compares edge density between current and baseline images
+    - Detects sudden non-rigid growth patterns
+    - Tracks changes over multiple frames to reduce false positives
+    """
+    
+    def __init__(self, client):
+        self._client = client
+        self._enabled = True
+        self._baseline_image = None
+        self._baseline_edge_map = None
+        self._previous_edge_density = 0.0
+        self._alert_triggered = False
+        self._current_layer = 0
+        self._layers_since_baseline = 0
+        self._baseline_update_interval = 5  # Update baseline every N layers
+        
+        # Detection thresholds
+        self._edge_density_threshold = 0.15  # 15% increase in edge density
+        self._sudden_growth_threshold = 0.25  # 25% sudden increase
+        self._alert_cooldown_layers = 3  # Don't re-alert for N layers
+        self._cooldown_counter = 0
+        
+    def enable(self):
+        """Enable spaghetti detection."""
+        self._enabled = True
+        LOGGER.debug("Spaghetti detection enabled")
+        
+    def disable(self):
+        """Disable spaghetti detection."""
+        self._enabled = False
+        self._alert_triggered = False
+        LOGGER.debug("Spaghetti detection disabled")
+        
+    def reset(self):
+        """Reset the detector state (e.g., when a new print starts)."""
+        self._baseline_image = None
+        self._baseline_edge_map = None
+        self._previous_edge_density = 0.0
+        self._alert_triggered = False
+        self._current_layer = 0
+        self._layers_since_baseline = 0
+        self._cooldown_counter = 0
+        LOGGER.debug("Spaghetti detector reset")
+        
+    def _convert_to_grayscale(self, image_bytes: bytearray) -> Image.Image:
+        """Convert image bytes to grayscale PIL Image."""
+        try:
+            image = Image.open(io.BytesIO(image_bytes))
+            return image.convert('L')  # Convert to grayscale
+        except Exception as e:
+            LOGGER.error(f"Error converting image to grayscale: {e}")
+            return None
+            
+    def _compute_edge_map(self, image: Image.Image) -> Image.Image:
+        """Compute edge map using PIL's FIND_EDGES filter."""
+        if image is None:
+            return None
+        try:
+            # Resize image for faster processing (maintain aspect ratio)
+            max_dimension = 640
+            if max(image.size) > max_dimension:
+                ratio = max_dimension / max(image.size)
+                new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
+                image = image.resize(new_size, Image.Resampling.LANCZOS)
+            
+            # Apply edge detection
+            edge_map = image.filter(ImageFilter.FIND_EDGES)
+            return edge_map
+        except Exception as e:
+            LOGGER.error(f"Error computing edge map: {e}")
+            return None
+            
+    def _calculate_edge_density(self, edge_map: Image.Image) -> float:
+        """Calculate the density of edges in the image (0.0 to 1.0)."""
+        if edge_map is None:
+            return 0.0
+        try:
+            # Convert to binary (threshold at 30)
+            threshold = 30
+            binary = edge_map.point(lambda x: 255 if x > threshold else 0)
+            
+            # Use histogram for efficient pixel counting
+            histogram = binary.histogram()
+            # histogram[0] contains count of black pixels (0)
+            # histogram[255] contains count of white pixels (255)
+            edge_pixels = histogram[255] if len(histogram) > 255 else 0
+            total_pixels = binary.size[0] * binary.size[1]
+            
+            density = edge_pixels / total_pixels if total_pixels > 0 else 0.0
+            return density
+        except Exception as e:
+            LOGGER.error(f"Error calculating edge density: {e}")
+            return 0.0
+            
+    def _detect_anomaly(self, current_density: float, baseline_density: float, previous_density: float) -> bool:
+        """Detect if the current edge density indicates a potential failure.
+        
+        Returns True if:
+        - Edge density increased significantly from baseline (new structures)
+        - Sudden jump in edge density (rapid growth)
+        """
+        if baseline_density == 0.0:
+            # No baseline yet, can't detect
+            return False
+            
+        # Calculate relative change from baseline
+        baseline_change = (current_density - baseline_density) / baseline_density if baseline_density > 0 else 0
+        
+        # Calculate frame-to-frame change
+        frame_change = (current_density - previous_density) / previous_density if previous_density > 0 else 0
+        
+        # Detect anomalies
+        baseline_anomaly = baseline_change > self._edge_density_threshold
+        sudden_anomaly = frame_change > self._sudden_growth_threshold
+        
+        if baseline_anomaly or sudden_anomaly:
+            LOGGER.debug(f"Spaghetti detection anomaly: baseline_change={baseline_change:.3f}, frame_change={frame_change:.3f}")
+            return True
+            
+        return False
+        
+    def analyze_image_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
+        """Analyze image on layer change and return True if spaghetti detected.
+        
+        Args:
+            image_bytes: Raw JPEG image bytes from camera
+            current_layer: Current layer number
+            
+        Returns:
+            True if potential spaghetti/failure detected, False otherwise
+        """
+        if not self._enabled or len(image_bytes) == 0:
+            return False
+            
+        # Update layer tracking
+        self._current_layer = current_layer
+        self._layers_since_baseline += 1
+        
+        # Cooldown handling
+        if self._cooldown_counter > 0:
+            self._cooldown_counter -= 1
+            return self._alert_triggered  # Keep existing alert state during cooldown
+            
+        # Convert image to grayscale
+        gray_image = self._convert_to_grayscale(image_bytes)
+        if gray_image is None:
+            return False
+            
+        # Compute edge map
+        edge_map = self._compute_edge_map(gray_image)
+        if edge_map is None:
+            return False
+            
+        # Calculate edge density
+        current_density = self._calculate_edge_density(edge_map)
+        
+        # Initialize baseline if needed or update periodically
+        if self._baseline_edge_map is None or self._layers_since_baseline >= self._baseline_update_interval:
+            self._baseline_image = gray_image
+            self._baseline_edge_map = edge_map
+            baseline_density = self._calculate_edge_density(self._baseline_edge_map)
+            self._previous_edge_density = baseline_density
+            self._layers_since_baseline = 0
+            LOGGER.debug(f"Spaghetti detector baseline updated at layer {current_layer}, density={baseline_density:.4f}")
+            return False
+            
+        # Calculate baseline density
+        baseline_density = self._calculate_edge_density(self._baseline_edge_map)
+        
+        # Detect anomaly
+        anomaly_detected = self._detect_anomaly(current_density, baseline_density, self._previous_edge_density)
+        
+        # Update state
+        self._previous_edge_density = current_density
+        
+        # Trigger alert if anomaly detected
+        if anomaly_detected and not self._alert_triggered:
+            self._alert_triggered = True
+            self._cooldown_counter = self._alert_cooldown_layers
+            LOGGER.warning(f"Spaghetti detection ALERT at layer {current_layer}: edge_density={current_density:.4f}, baseline={baseline_density:.4f}")
+            self._client.callback("event_spaghetti_detected")
+            return True
+            
+        # Clear alert if conditions normalize (optional - could keep alert until print ends)
+        # For now, we keep the alert state until reset or cooldown ends
+        
+        return self._alert_triggered
+        
+    @property
+    def is_alert_active(self) -> bool:
+        """Return True if a spaghetti alert is currently active."""
+        return self._alert_triggered
+    
+    @property
+    def is_initial_detection(self) -> bool:
+        """Return True if this is the initial detection (cooldown just started)."""
+        return self._alert_triggered and self._cooldown_counter == self._alert_cooldown_layers
+        
+    @property
+    def is_enabled(self) -> bool:
+        """Return True if spaghetti detection is enabled."""
+        return self._enabled
+    
+    # Threshold configuration properties
+    @property
+    def edge_density_threshold(self) -> float:
+        """Get the edge density threshold (0.0 to 1.0)."""
+        return self._edge_density_threshold
+    
+    def set_edge_density_threshold(self, value: float):
+        """Set the edge density threshold (0.0 to 1.0)."""
+        self._edge_density_threshold = max(0.0, min(1.0, value))
+        LOGGER.debug(f"Spaghetti detector edge density threshold set to {self._edge_density_threshold:.2f}")
+    
+    @property
+    def sudden_growth_threshold(self) -> float:
+        """Get the sudden growth threshold (0.0 to 1.0)."""
+        return self._sudden_growth_threshold
+    
+    def set_sudden_growth_threshold(self, value: float):
+        """Set the sudden growth threshold (0.0 to 1.0)."""
+        self._sudden_growth_threshold = max(0.0, min(1.0, value))
+        LOGGER.debug(f"Spaghetti detector sudden growth threshold set to {self._sudden_growth_threshold:.2f}")
+    
+    @property
+    def baseline_update_interval(self) -> int:
+        """Get the baseline update interval in layers."""
+        return self._baseline_update_interval
+    
+    def set_baseline_update_interval(self, value: int):
+        """Set the baseline update interval in layers."""
+        self._baseline_update_interval = max(1, min(20, int(value)))
+        LOGGER.debug(f"Spaghetti detector baseline update interval set to {self._baseline_update_interval} layers")
+    
+    @property
+    def alert_cooldown_layers(self) -> int:
+        """Get the alert cooldown in layers."""
+        return self._alert_cooldown_layers
+    
+    def set_alert_cooldown_layers(self, value: int):
+        """Set the alert cooldown in layers."""
+        self._alert_cooldown_layers = max(1, min(10, int(value)))
+        LOGGER.debug(f"Spaghetti detector alert cooldown set to {self._alert_cooldown_layers} layers")
 
 
 @dataclass

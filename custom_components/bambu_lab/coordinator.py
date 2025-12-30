@@ -158,6 +158,10 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
 
         elif event == "event_print_error":
             self._update_print_error()
+        
+        elif event == "event_layer_changed":
+            # Trigger spaghetti detection on layer change
+            self._check_spaghetti_detection()
 
         # event_print_started
         # event_print_finished
@@ -793,6 +797,39 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             event_data["error"] = device.print_error.error['error']
             LOGGER.debug(f"EVENT: print_error: {event_data}")
         self._hass.bus.async_fire(f"{DOMAIN}_event", event_data)
+    
+    def _check_spaghetti_detection(self):
+        """Check for spaghetti/print failure on layer change."""
+        device = self.get_model()
+        current_layer = device.print_job.current_layer
+        
+        # Get current chamber image
+        image_bytes = device.chamber_image.get_image()
+        
+        if len(image_bytes) > 0 and current_layer > 0:
+            # Analyze the image for spaghetti
+            alert_active = device.spaghetti_detector.analyze_image_on_layer_change(
+                image_bytes, 
+                current_layer
+            )
+            
+            # Fire device trigger event if newly detected
+            if device.spaghetti_detector.is_initial_detection:
+                # Only fire event on initial detection
+                dev_reg = device_registry.async_get(self._hass)
+                hadevice = dev_reg.async_get_device(identifiers={(DOMAIN, device.info.serial)})
+                
+                event_data = {
+                    "device_id": hadevice.id,
+                    "name": self.config_entry.options.get('name', ''),
+                    "type": "event_spaghetti_detected",
+                    "layer": current_layer,
+                }
+                LOGGER.warning(f"EVENT: Spaghetti detected at layer {current_layer}")
+                self._hass.bus.async_fire(f"{DOMAIN}_event", event_data)
+            
+            # Update data to refresh binary sensor
+            self._update_data()
 
     def _update_device_info(self):
         if not self._updatedDevice:

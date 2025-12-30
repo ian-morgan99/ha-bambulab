@@ -8,7 +8,8 @@
       "event_print_error": "Print error",
       "event_print_error_cleared": "Print error cleared",
       "event_printer_error": "HMS error",
-      "event_printer_error_cleared": "HMS error cleared"
+      "event_printer_error_cleared": "HMS error cleared",
+      "event_spaghetti_detected": "Spaghetti/print failure detected"
     }
   },
   "config": {
@@ -246,6 +247,9 @@
       },
       "extruder_filament_state": {
         "name": "Extruder filament state"
+      },
+      "spaghetti_detection": {
+        "name": "Spaghetti Detection Alert"
       }
     },
     "button": {
@@ -313,6 +317,18 @@
       },
       "target_nozzle_temperature": {
         "name": "Nozzle target temperature"
+      },
+      "spaghetti_edge_density_threshold": {
+        "name": "Spaghetti Detection: Edge Density Threshold"
+      },
+      "spaghetti_sudden_growth_threshold": {
+        "name": "Spaghetti Detection: Sudden Growth Threshold"
+      },
+      "spaghetti_baseline_update_interval": {
+        "name": "Spaghetti Detection: Baseline Update Interval (layers)"
+      },
+      "spaghetti_alert_cooldown_layers": {
+        "name": "Spaghetti Detection: Alert Cooldown (layers)"
       }
     },
     "select": {
@@ -857,6 +873,9 @@
       },
       "airduct_mode": {
         "name": "Cooling Mode or Heating/Filter Mode"
+      },
+      "spaghetti_detection": {
+        "name": "Spaghetti Detection"
       }
     },
     "update": {
