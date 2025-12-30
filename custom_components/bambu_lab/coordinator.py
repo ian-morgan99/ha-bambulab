@@ -678,15 +678,24 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
     def _service_call_download_timelapse(self, data: dict):
         """Service call to manually download the latest timelapse video."""
         LOGGER.debug("Triggering manual timelapse download")
-        self.get_model().print_job._download_timelapse()
+        model = self.get_model()
+        if not model or not getattr(model, "print_job", None):
+            LOGGER.debug("Timelapse download aborted: model or print_job not available")
+            return False
+        model.print_job._download_timelapse()
         return True
 
     def _get_latest_timelapse_file(self) -> Optional[Dict[str, Any]]:
         """Get the latest timelapse file data."""
+        # Ensure we have a valid event loop before scheduling the coroutine
+        event_loop = getattr(self, "_eventloop", None)
+        if event_loop is None or getattr(event_loop, "is_closed", lambda: False)():
+            LOGGER.debug("No valid event loop available for retrieving latest timelapse")
+            return None
         try:
             files = asyncio.run_coroutine_threadsafe(
                 self.get_cached_files('timelapse'),
-                self._eventloop
+                event_loop
             ).result(timeout=5)
             
             if files:
@@ -701,24 +710,20 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         """Get the URL of the latest timelapse video."""
         latest = self._get_latest_timelapse_file()
         if latest:
-            # Convert absolute path to media URL
-            # /config/www/media/ha-bambulab/{serial}/timelapse/video.mp4 -> /media/ha-bambulab/{serial}/timelapse/video.mp4
-            path = latest['path']
-            if '/www/media/' in path:
-                media_path = path.split('/www/media/')[1]
-                return f"/media/{media_path}"
-            return path
-        return None
+            # latest['path'] is already of the form 'serial/timelapse/video.mp4'
+            # Build the media URL directly
+            return f"/media/ha-bambulab/{latest['path']}"
+        return ""
 
     def get_latest_timelapse_attributes(self) -> dict:
         """Get attributes for the latest timelapse."""
         latest = self._get_latest_timelapse_file()
         if latest:
             return {
-                'file_name': latest.get('name'),
+                'file_name': latest.get('filename'),
                 'file_size': latest.get('size'),
                 'modified': latest.get('modified'),
-                'thumbnail': latest.get('thumbnail_url'),
+                'thumbnail': latest.get('thumbnail_path'),
             }
         return {}
 

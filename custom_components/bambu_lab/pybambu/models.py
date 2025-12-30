@@ -1152,9 +1152,10 @@ class PrintJob:
                 self._download_timelapse()
                 timelapseDownloaded = True
             self._client.callback("event_print_finished")
-            # Handle incognito mode - delete files after print completion
+            # Handle incognito mode - delete files after print completion.
+            # Use a short delay to reduce the chance of racing with the timelapse download.
             if self._client._incognito_mode:
-                self._delete_last_print_files()
+                threading.Timer(5.0, self._delete_last_print_files).start()
 
         if currently_idle and not previously_idle and previous_gcode_state != "unknown":
             if self.start_time != None:
@@ -1606,7 +1607,7 @@ class PrintJob:
         LOGGER.debug(f"Done downloading timelapse by FTP. Elapsed time = {(end_time-start_time).seconds}s") 
 
     def _delete_last_print_files(self):
-        """Delete the latest timelapse video and model files from SD card when incognito mode is enabled"""
+        """Delete all identifiable files created since print start when incognito mode is enabled"""
         if self._client._test_mode:
             return
         if not self._client.ftp_enabled:
@@ -1619,63 +1620,105 @@ class PrintJob:
         current_thread = threading.current_thread()
         current_thread.setName(f"{self._client._device.info.device_type}-FTP-DELETE-{threading.get_native_id()}")
         start_time = datetime.now()
-        LOGGER.debug(f"Incognito mode: Deleting last print files via FTP")
+        LOGGER.debug(f"Incognito mode: Deleting files created during print via FTP")
+        
+        # Calculate the deletion threshold time (10 minutes before print start)
+        deletion_threshold = None
+        if self.start_time is not None:
+            deletion_threshold = self.start_time - timedelta(minutes=10)
+            LOGGER.debug(f"Incognito mode: Will delete files modified after {deletion_threshold}")
+        else:
+            LOGGER.warning("Incognito mode: Print start time is None, cannot determine which files to delete")
+            return
         
         try:
             # Open the FTP connection
             ftp = self._client.ftp_connection()
             
-            # Delete latest timelapse video and thumbnail
-            video_extensions = ['.mp4', '.avi']
-            timelapse_path = self._find_latest_file(ftp, ['/timelapse'], video_extensions)
-            if timelapse_path is not None:
-                try:
-                    LOGGER.debug(f"Incognito mode: Deleting timelapse at '{timelapse_path}'")
-                    ftp.delete(timelapse_path)
-                    
-                    # Try to delete associated thumbnail
-                    filename = os.path.basename(timelapse_path)
-                    filename_without_extension, _ = os.path.splitext(filename)
-                    thumbnail_filename = f"{filename_without_extension}.jpg"
-                    # Use forward slashes for FTP paths
-                    dirname = timelapse_path.rsplit('/', 1)[0] if '/' in timelapse_path else ''
-                    thumbnail_path = f"{dirname}/thumbnail/{thumbnail_filename}"
-                    try:
-                        ftp.delete(thumbnail_path)
-                        LOGGER.debug(f"Incognito mode: Deleted thumbnail at '{thumbnail_path}'")
-                    except Exception as e:
-                        LOGGER.debug(f"Incognito mode: Could not delete thumbnail '{thumbnail_path}': {e}")
-                except ftplib.error_perm as e:
-                    LOGGER.debug(f"Incognito mode: Failed to delete timelapse at '{timelapse_path}': {e}")
-                except Exception as e:
-                    LOGGER.debug(f"Incognito mode: Unexpected exception deleting timelapse at '{timelapse_path}': {type(e)} Args: {e}")
+            # Define folders and file extensions to clean
+            folders_to_clean = {
+                '/cache': ['.gcode'],
+                '/image': ['.png'],
+                '/image/hms': ['.png'],
+                '/image/md5': ['.md5'],
+                '/ipcam': ['.avi'],
+                '/logger': ['.log'],
+                '/recorder': ['.bin'],
+                '/timelapse': ['.avi', '.mp4'],
+                '/timelapse/thumbnail': ['.jpg'],
+            }
             
-            # Delete latest model file and associated files
-            model_path = self._find_latest_file(ftp, self.ftp_search_paths, ['.3mf'])
-            if model_path is not None:
+            deleted_count = 0
+            
+            for folder, extensions in folders_to_clean.items():
                 try:
-                    LOGGER.debug(f"Incognito mode: Deleting model at '{model_path}'")
-                    ftp.delete(model_path)
+                    LOGGER.debug(f"Incognito mode: Checking folder '{folder}' for files to delete")
+                    # List files in the folder
+                    file_list = []
                     
-                    # Try to delete associated files (.gcode, .jpg, .png, .slice_info.config)
-                    filename_without_extension, _ = os.path.splitext(model_path)
-                    associated_extensions = ['.gcode', '.jpg', '.png', '.slice_info.config']
-                    for ext in associated_extensions:
-                        assoc_file_path = f"{filename_without_extension}{ext}"
-                        try:
-                            ftp.delete(assoc_file_path)
-                            LOGGER.debug(f"Incognito mode: Deleted associated file '{assoc_file_path}'")
-                        except Exception:
-                            pass  # File may not exist, that's okay
+                    def parse_line(line: str):
+                        # Parse FTP LIST output to get filename and timestamp
+                        # Example: -rw-r--r--    1 1000     1000      1632221 Jun 17  2025 video_2025-06-17_12-12-18.mp4
+                        pattern_with_time_no_year = r'^\S+\s+\d+\s+\S+\s+\S+\s+\d+\s+(\S+\s+\d+\s+\d+:\d+)\s+(.+)$'
+                        pattern_without_time_just_year = r'^\S+\s+\d+\s+\S+\s+\S+\s+\d+\s+(\S+\s+\d+\s+\d+)\s+(.+)$'
+                        
+                        match = re.match(pattern_with_time_no_year, line)
+                        if match:
+                            timestamp_str, filename = match.groups()
+                            _, extension = os.path.splitext(filename)
+                            if extension in extensions:
+                                # Parse timestamp without year
+                                timestamp = datetime.strptime(timestamp_str, '%b %d %H:%M')
+                                timestamp = timestamp.replace(tzinfo=timezone.utc)
+                                utc_time_now = datetime.now().astimezone(timezone.utc)
+                                
+                                # Initially assume current year, then adjust if needed
+                                timestamp = timestamp.replace(year=utc_time_now.year)
+                                delta = timestamp - utc_time_now
+                                six_months = timedelta(days=190)
+                                
+                                if delta > six_months:
+                                    timestamp = timestamp.replace(year=utc_time_now.year - 1)
+                                elif delta < -six_months:
+                                    timestamp = timestamp.replace(year=utc_time_now.year + 1)
+                                
+                                file_list.append((timestamp, f"{folder}/{filename}" if folder != '/' else f"/{filename}"))
+                            return
+                        
+                        match = re.match(pattern_without_time_just_year, line)
+                        if match:
+                            timestamp_str, filename = match.groups()
+                            _, extension = os.path.splitext(filename)
+                            if extension in extensions:
+                                timestamp = datetime.strptime(timestamp_str, '%b %d %Y')
+                                timestamp = timestamp.replace(tzinfo=timezone.utc)
+                                file_list.append((timestamp, f"{folder}/{filename}" if folder != '/' else f"/{filename}"))
+                    
+                    # List directory contents
+                    ftp.retrlines(f'LIST {folder}', parse_line)
+                    
+                    # Delete files that are newer than the threshold
+                    for file_timestamp, file_path in file_list:
+                        if file_timestamp >= deletion_threshold:
+                            try:
+                                LOGGER.debug(f"Incognito mode: Deleting '{file_path}' (modified: {file_timestamp})")
+                                ftp.delete(file_path)
+                                deleted_count += 1
+                            except ftplib.error_perm as e:
+                                LOGGER.debug(f"Incognito mode: Failed to delete '{file_path}': {e}")
+                            except Exception as e:
+                                LOGGER.debug(f"Incognito mode: Unexpected exception deleting '{file_path}': {type(e)} Args: {e}")
+                
                 except ftplib.error_perm as e:
-                    LOGGER.debug(f"Incognito mode: Failed to delete model at '{model_path}': {e}")
+                    # Folder might not exist, that's okay
+                    LOGGER.debug(f"Incognito mode: Could not access folder '{folder}': {e}")
                 except Exception as e:
-                    LOGGER.debug(f"Incognito mode: Unexpected exception deleting model at '{model_path}': {type(e)} Args: {e}")
+                    LOGGER.debug(f"Incognito mode: Error processing folder '{folder}': {type(e)} Args: {e}")
             
             ftp.quit()
             
             end_time = datetime.now()
-            LOGGER.debug(f"Incognito mode: Done deleting files via FTP. Elapsed time = {(end_time-start_time).seconds}s")
+            LOGGER.info(f"Incognito mode: Deleted {deleted_count} files via FTP. Elapsed time = {(end_time-start_time).seconds}s")
         except Exception as e:
             LOGGER.error(f"Incognito mode: Error during file deletion: {type(e)} Args: {e}")
 
