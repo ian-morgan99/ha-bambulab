@@ -3437,7 +3437,7 @@ class SpaghettiDetector:
     
     def set_baseline_update_interval(self, value: int):
         """Set the baseline update interval in layers."""
-        self._baseline_update_interval = max(1, min(100, int(value)))
+        self._baseline_update_interval = max(1, min(20, int(value)))
         LOGGER.debug(f"Spaghetti detector baseline update interval set to {self._baseline_update_interval} layers")
     
     @property
@@ -3447,7 +3447,7 @@ class SpaghettiDetector:
     
     def set_alert_cooldown_layers(self, value: int):
         """Set the alert cooldown in layers."""
-        self._alert_cooldown_layers = max(1, min(50, int(value)))
+        self._alert_cooldown_layers = max(1, min(10, int(value)))
         LOGGER.debug(f"Spaghetti detector alert cooldown set to {self._alert_cooldown_layers} layers")
 
 
