@@ -3469,60 +3469,65 @@ class SpaghettiDetector:
         """
         if not self._enabled or len(image_bytes) == 0:
             return False
-            
-        # Update layer tracking
-        self._current_layer = current_layer
-        self._layers_since_baseline += 1
         
-        # Cooldown handling
-        if self._cooldown_counter > 0:
-            self._cooldown_counter -= 1
-            return self._alert_triggered  # Keep existing alert state during cooldown
+        try:
+            # Update layer tracking
+            self._current_layer = current_layer
+            self._layers_since_baseline += 1
             
-        # Convert image to grayscale
-        gray_image = self._convert_to_grayscale(image_bytes)
-        if gray_image is None:
-            return False
+            # Cooldown handling
+            if self._cooldown_counter > 0:
+                self._cooldown_counter -= 1
+                return self._alert_triggered  # Keep existing alert state during cooldown
+                
+            # Convert image to grayscale
+            gray_image = self._convert_to_grayscale(image_bytes)
+            if gray_image is None:
+                return False
+                
+            # Compute edge map
+            edge_map = self._compute_edge_map(gray_image)
+            if edge_map is None:
+                return False
+                
+            # Calculate edge density
+            current_density = self._calculate_edge_density(edge_map)
             
-        # Compute edge map
-        edge_map = self._compute_edge_map(gray_image)
-        if edge_map is None:
-            return False
-            
-        # Calculate edge density
-        current_density = self._calculate_edge_density(edge_map)
-        
-        # Initialize baseline if needed or update periodically
-        if self._baseline_edge_map is None or self._layers_since_baseline >= self._baseline_update_interval:
-            self._baseline_image = gray_image
-            self._baseline_edge_map = edge_map
+            # Initialize baseline if needed or update periodically
+            if self._baseline_edge_map is None or self._layers_since_baseline >= self._baseline_update_interval:
+                self._baseline_image = gray_image
+                self._baseline_edge_map = edge_map
+                baseline_density = self._calculate_edge_density(self._baseline_edge_map)
+                self._previous_edge_density = baseline_density
+                self._layers_since_baseline = 0
+                LOGGER.debug(f"Spaghetti detector baseline updated at layer {current_layer}, density={baseline_density:.4f}")
+                return False
+                
+            # Calculate baseline density
             baseline_density = self._calculate_edge_density(self._baseline_edge_map)
-            self._previous_edge_density = baseline_density
-            self._layers_since_baseline = 0
-            LOGGER.debug(f"Spaghetti detector baseline updated at layer {current_layer}, density={baseline_density:.4f}")
-            return False
             
-        # Calculate baseline density
-        baseline_density = self._calculate_edge_density(self._baseline_edge_map)
-        
-        # Detect anomaly
-        anomaly_detected = self._detect_anomaly(current_density, baseline_density, self._previous_edge_density)
-        
-        # Update state
-        self._previous_edge_density = current_density
-        
-        # Trigger alert if anomaly detected
-        if anomaly_detected and not self._alert_triggered:
-            self._alert_triggered = True
-            self._cooldown_counter = self._alert_cooldown_layers
-            LOGGER.warning(f"Spaghetti detection ALERT at layer {current_layer}: edge_density={current_density:.4f}, baseline={baseline_density:.4f}")
-            self._client.callback("event_spaghetti_detected")
-            return True
+            # Detect anomaly
+            anomaly_detected = self._detect_anomaly(current_density, baseline_density, self._previous_edge_density)
             
-        # Clear alert if conditions normalize (optional - could keep alert until print ends)
-        # For now, we keep the alert state until reset or cooldown ends
-        
-        return self._alert_triggered
+            # Update state
+            self._previous_edge_density = current_density
+            
+            # Trigger alert if anomaly detected
+            if anomaly_detected and not self._alert_triggered:
+                self._alert_triggered = True
+                self._cooldown_counter = self._alert_cooldown_layers
+                LOGGER.warning(f"Spaghetti detection ALERT at layer {current_layer}: edge_density={current_density:.4f}, baseline={baseline_density:.4f}")
+                self._client.callback("event_spaghetti_detected")
+                return True
+                
+            # Clear alert if conditions normalize (optional - could keep alert until print ends)
+            # For now, we keep the alert state until reset or cooldown ends
+            
+            return self._alert_triggered
+        except Exception as e:
+            LOGGER.error(f"Error in spaghetti detection analysis: {e}", exc_info=True)
+            # On error, don't trigger alert and return current state
+            return self._alert_triggered
         
     @property
     def is_alert_active(self) -> bool:
@@ -3579,6 +3584,18 @@ class SpaghettiDetector:
         """Set the alert cooldown in layers."""
         self._alert_cooldown_layers = max(1, min(10, int(value)))
         LOGGER.debug(f"Spaghetti detector alert cooldown set to {self._alert_cooldown_layers} layers")
+    
+    @property
+    def current_edge_density(self) -> float:
+        """Get the current edge density measurement (0.0 to 1.0)."""
+        return self._previous_edge_density
+    
+    @property
+    def baseline_edge_density(self) -> float:
+        """Get the baseline edge density measurement (0.0 to 1.0)."""
+        if self._baseline_edge_map is None:
+            return 0.0
+        return self._calculate_edge_density(self._baseline_edge_map)
 
 
 @dataclass

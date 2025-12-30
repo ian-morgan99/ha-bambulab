@@ -132,7 +132,8 @@ class ChamberImageThread(threading.Thread):
         while connect_attempts < MAX_CONNECT_ATTEMPTS and not self._stop_event.is_set():
             connect_attempts += 1
             try:
-                with socket.create_connection((hostname, port)) as sock:
+                # Add timeout to socket connection to prevent hanging
+                with socket.create_connection((hostname, port), timeout=30) as sock:
                     try:
                         sslSock = ctx.wrap_socket(sock, server_hostname=hostname)
                         sslSock.write(auth_data)
@@ -206,6 +207,11 @@ class ChamberImageThread(threading.Thread):
                     LOGGER.error(f"Exception. Type: {type(e)} Args: {e}")
                 if not self._stop_event.is_set():
                     time.sleep(2)  # Avoid a tight loop if this is a persistent error.
+
+            except socket.timeout:
+                LOGGER.warning("Chamber image connection timed out. Printer may be off or unreachable.")
+                if not self._stop_event.is_set():
+                    time.sleep(5)  # Wait longer on timeout before retrying
 
             except Exception as e:
                 LOGGER.error(f"Chamber Image thread exception occurred:")
