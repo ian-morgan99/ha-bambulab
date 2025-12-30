@@ -1556,61 +1556,77 @@ class PrintJob:
         start_time = datetime.now()
         LOGGER.debug(f"Downloading latest timelapse by FTP")
 
-        # Open the FTP connection
-        ftp = self._client.ftp_connection()
-        video_extensions = ['.mp4','.avi']
-        file_path = self._find_latest_file(ftp, ['/timelapse'], video_extensions)
-        if file_path is not None:
-            # timelapse_path is of form '/timelapse/foo.mp4'
-            local_file_path = os.path.join(self._client.cache_path, file_path.lstrip('/'))
-            directory_path = os.path.dirname(local_file_path)
-            os.makedirs(directory_path, exist_ok=True)
+        ftp = None
+        try:
+            # Open the FTP connection with timeout protection
+            ftp = self._client.ftp_connection()
+            video_extensions = ['.mp4','.avi']
+            file_path = self._find_latest_file(ftp, ['/timelapse'], video_extensions)
+            if file_path is not None:
+                # timelapse_path is of form '/timelapse/foo.mp4'
+                local_file_path = os.path.join(self._client.cache_path, file_path.lstrip('/'))
+                directory_path = os.path.dirname(local_file_path)
+                os.makedirs(directory_path, exist_ok=True)
 
-            try:
-                # Get the file size from FTP
-                size = ftp.size(file_path)
-                LOGGER.debug(f"Timelapse file exists. Size: {size} bytes.")
-                
-                # Check if file already exists with same size
-                should_download = False
-                if os.path.exists(local_file_path):
-                    local_file_size = os.path.getsize(local_file_path)
-                    if local_file_size == size:
-                        LOGGER.debug(f"Timelapse file found in cache.")
+                try:
+                    # Get the file size from FTP
+                    size = ftp.size(file_path)
+                    LOGGER.debug(f"Timelapse file exists. Size: {size} bytes.")
+                    
+                    # Check if file already exists with same size
+                    should_download = False
+                    if os.path.exists(local_file_path):
+                        local_file_size = os.path.getsize(local_file_path)
+                        if local_file_size == size:
+                            LOGGER.debug(f"Timelapse file found in cache.")
+                        else:
+                            LOGGER.debug(f"Timelapse file size differs (local: {local_file_size}, remote: {size}). Re-downloading.")
+                            should_download = True
                     else:
-                        LOGGER.debug(f"Timelapse file size differs (local: {local_file_size}, remote: {size}). Re-downloading.")
+                        LOGGER.debug(f"Timelapse file doesn't exist locally. Downloading.")
                         should_download = True
-                else:
-                    LOGGER.debug(f"Timelapse file doesn't exist locally. Downloading.")
-                    should_download = True
-                
-                if should_download:
-                    # Download video
-                    with open(local_file_path, 'wb') as f:
-                        LOGGER.debug(f"Downloading '{file_path}'")
-                        ftp.retrbinary(f"RETR {file_path}", f.write)
-                        f.flush()
                     
-                    # Download thumbnail
-                    filename = os.path.basename(file_path)
-                    filename_without_extension, _ = os.path.splitext(filename)
-                    thumbnail_filename = f"{filename_without_extension}.jpg"
-                    # Use os.path.join for FTP paths, then replace backslashes for cross-platform compatibility
-                    dirname = file_path.rsplit('/', 1)[0] if '/' in file_path else ''
-                    thumbnail_path = os.path.join(dirname, 'thumbnail', thumbnail_filename).replace('\\', '/')
-                    thumbnail_local_path = os.path.join(os.path.dirname(local_file_path), thumbnail_filename)
-                    with open(thumbnail_local_path, 'wb') as f:
-                        LOGGER.info(f"Downloading '{thumbnail_path}'")
-                        ftp.retrbinary(f"RETR {thumbnail_path}", f.write)
-                        f.flush()
-                    
-            except ftplib.error_perm as e:
-                if '550' not in str(e.args): # 550 is unavailable.
-                    LOGGER.debug(f"Failed to download timelapse at '{file_path}': {e}")
-            except Exception as e:
-                LOGGER.debug(f"Unexpected exception downloading timelapse at '{file_path}': {type(e)} Args: {e}")
+                    if should_download:
+                        # Download video
+                        with open(local_file_path, 'wb') as f:
+                            LOGGER.debug(f"Downloading '{file_path}'")
+                            ftp.retrbinary(f"RETR {file_path}", f.write)
+                            f.flush()
+                        
+                        # Download thumbnail
+                        filename = os.path.basename(file_path)
+                        filename_without_extension, _ = os.path.splitext(filename)
+                        thumbnail_filename = f"{filename_without_extension}.jpg"
+                        # Use os.path.join for FTP paths, then replace backslashes for cross-platform compatibility
+                        dirname = file_path.rsplit('/', 1)[0] if '/' in file_path else ''
+                        thumbnail_path = os.path.join(dirname, 'thumbnail', thumbnail_filename).replace('\\', '/')
+                        thumbnail_local_path = os.path.join(os.path.dirname(local_file_path), thumbnail_filename)
+                        with open(thumbnail_local_path, 'wb') as f:
+                            LOGGER.info(f"Downloading '{thumbnail_path}'")
+                            ftp.retrbinary(f"RETR {thumbnail_path}", f.write)
+                            f.flush()
+                        
+                except ftplib.error_perm as e:
+                    if '550' not in str(e.args): # 550 is unavailable.
+                        LOGGER.debug(f"Failed to download timelapse at '{file_path}': {e}")
+                except Exception as e:
+                    LOGGER.debug(f"Unexpected exception downloading timelapse at '{file_path}': {type(e)} Args: {e}")
 
-        ftp.quit()
+        except socket.timeout:
+            LOGGER.warning("FTP connection timed out downloading timelapse. Printer may be off or network unavailable.")
+        except ftplib.error_temp as e:
+            LOGGER.warning(f"Temporary FTP error downloading timelapse: {e}")
+        except ftplib.error_perm as e:
+            LOGGER.warning(f"FTP permission error downloading timelapse: {e}")
+        except Exception as e:
+            LOGGER.error(f"Unexpected error downloading timelapse via FTP: {type(e)} Args: {e}", exc_info=True)
+        finally:
+            # Always try to close FTP connection
+            if ftp is not None:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass  # Ignore errors when closing
 
         end_time = datetime.now()
 
@@ -1739,8 +1755,21 @@ class PrintJob:
             
             end_time = datetime.now()
             LOGGER.info(f"Incognito mode: Deleted {deleted_count} files via FTP. Elapsed time = {(end_time-start_time).seconds}s")
+        except socket.timeout:
+            LOGGER.warning("Incognito mode: FTP connection timed out during file deletion. Printer may be off or network unavailable.")
+        except ftplib.error_temp as e:
+            LOGGER.warning(f"Incognito mode: Temporary FTP error during file deletion: {e}")
+        except ftplib.error_perm as e:
+            LOGGER.warning(f"Incognito mode: FTP permission error during file deletion: {e}")
         except Exception as e:
-            LOGGER.error(f"Incognito mode: Error during file deletion: {type(e)} Args: {e}")
+            LOGGER.error(f"Incognito mode: Unexpected error during file deletion: {type(e)} Args: {e}", exc_info=True)
+        finally:
+            # Always try to close FTP connection if it was opened
+            if 'ftp' in locals() and ftp is not None:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass  # Ignore errors when closing
 
     def _update_task_data(self):
         self._loaded_model_data = True
@@ -1796,26 +1825,46 @@ class PrintJob:
         self._ftpThread = None
 
     def _async_download_task_data_from_printer_worker(self):
-        # Open the FTP connection
-        ftp = self._client.ftp_connection()
+        ftp = None
+        try:
+            # Open the FTP connection with timeout protection
+            ftp = self._client.ftp_connection()
 
-        for i in range(1,13):
-            model_file_path = self._attempt_ftp_download(ftp)
-            if model_file_path is not None:
-                break
+            for i in range(1,13):
+                model_file_path = self._attempt_ftp_download(ftp)
+                if model_file_path is not None:
+                    break
 
-            if not self._client._device.supports_feature(Features.SUPPORTS_EARLY_FTP_DOWNLOAD):
-                # The X1 has a weird behavior where the downloaded file doesn't exist for several seconds into the RUNNING phase and even
-                # then it is still being downloaded in place so we might try to grab it mid-download and get a corrupt file. Try 13 times
-                # 5 seconds apart over 60s.
-                if i != 12:
-                    LOGGER.debug(f"Sleeping 5s for X1/H2/P2 retry")
-                    time.sleep(5)
-                    LOGGER.debug(f"Try #{i+1} for X1/H2/P2")
-            else:
-                break
+                if not self._client._device.supports_feature(Features.SUPPORTS_EARLY_FTP_DOWNLOAD):
+                    # The X1 has a weird behavior where the downloaded file doesn't exist for several seconds into the RUNNING phase and even
+                    # then it is still being downloaded in place so we might try to grab it mid-download and get a corrupt file. Try 13 times
+                    # 5 seconds apart over 60s.
+                    if i != 12:
+                        LOGGER.debug(f"Sleeping 5s for X1/H2/P2 retry")
+                        time.sleep(5)
+                        LOGGER.debug(f"Try #{i+1} for X1/H2/P2")
+                else:
+                    break
 
-        ftp.quit()
+        except socket.timeout:
+            LOGGER.warning("FTP connection timed out downloading task data. Printer may be off or network unavailable.")
+            model_file_path = None
+        except ftplib.error_temp as e:
+            LOGGER.warning(f"Temporary FTP error downloading task data: {e}")
+            model_file_path = None
+        except ftplib.error_perm as e:
+            LOGGER.warning(f"FTP permission error downloading task data: {e}")
+            model_file_path = None
+        except Exception as e:
+            LOGGER.error(f"Unexpected error downloading task data via FTP: {type(e)} Args: {e}", exc_info=True)
+            model_file_path = None
+        finally:
+            # Always try to close FTP connection
+            if ftp is not None:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass  # Ignore errors when closing
 
         if model_file_path is None:
             LOGGER.debug("No model file found.")
@@ -2138,6 +2187,9 @@ class PrintJob:
             
             return int(size) == expected_size
             
+        except socket.timeout:
+            LOGGER.warning(f"FTP file check timed out for {file_path}. Printer may be off or network unavailable.")
+            return False
         except Exception as e:
             LOGGER.debug(f"FTP file check failed for {file_path}: {e}")
             return False
@@ -2214,6 +2266,9 @@ class PrintJob:
 
             return True
 
+        except socket.timeout:
+            LOGGER.warning(f"FTP upload timed out for {local_path} to {remote_path}. Printer may be off or network unavailable.")
+            return False
         except Exception as e:
             LOGGER.debug(f"FTP upload failed for {local_path} to {remote_path}: {e}")
             return False
