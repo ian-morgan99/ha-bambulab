@@ -679,6 +679,75 @@ class BambuClient:
         ftp.prot_p()
         return ftp
 
+    def check_ftps_connectivity(self) -> dict:
+        """Check FTPS connectivity and return info about latest file in active folders."""
+        if not self._enable_ftp:
+            return {
+                "connected": False,
+                "latest_file": None,
+                "latest_file_time": None,
+                "error": "FTP not enabled"
+            }
+        
+        try:
+            ftp = self.ftp_connection()
+            
+            # Define folders to check for recent activity
+            folders_to_check = ['/cache', '/timelapse', '/ipcam', '/image']
+            latest_file = None
+            latest_time = None
+            
+            for folder in folders_to_check:
+                try:
+                    lines = []
+                    ftp.retrlines(f'LIST {folder}', lines.append)
+                    
+                    for line in lines:
+                        # Parse FTP LIST format: -rw-r--r--    1 1000     1000      1632221 Jun 17  2025 filename.ext
+                        parts = line.split()
+                        if len(parts) >= 9:
+                            # Get filename (last part)
+                            filename = ' '.join(parts[8:])
+                            # Get date/time parts
+                            if ':' in parts[7]:  # Has time (current year)
+                                date_str = f"{parts[5]} {parts[6]} {datetime.now().year} {parts[7]}"
+                                try:
+                                    file_time = datetime.strptime(date_str, '%b %d %Y %H:%M')
+                                except ValueError:
+                                    continue
+                            else:  # Has year (older file)
+                                date_str = f"{parts[5]} {parts[6]} {parts[7]}"
+                                try:
+                                    file_time = datetime.strptime(date_str, '%b %d %Y')
+                                except ValueError:
+                                    continue
+                            
+                            if latest_time is None or file_time > latest_time:
+                                latest_time = file_time
+                                latest_file = f"{folder}/{filename}"
+                
+                except ftplib.error_perm:
+                    # Folder may not exist, continue
+                    continue
+            
+            ftp.quit()
+            
+            return {
+                "connected": True,
+                "latest_file": latest_file,
+                "latest_file_time": latest_time.isoformat() if latest_time else None,
+                "error": None
+            }
+            
+        except Exception as e:
+            LOGGER.debug(f"FTPS connectivity check failed: {e}")
+            return {
+                "connected": False,
+                "latest_file": None,
+                "latest_file_time": None,
+                "error": str(e)
+            }
+
     async def try_connection(self):
         """Test if we can connect to an MQTT broker."""
         LOGGER.debug("Try Connection")
