@@ -132,8 +132,9 @@ class ChamberImageThread(threading.Thread):
         while connect_attempts < MAX_CONNECT_ATTEMPTS and not self._stop_event.is_set():
             connect_attempts += 1
             try:
-                # Add timeout to socket connection to prevent hanging
-                with socket.create_connection((hostname, port), timeout=30) as sock:
+                # Add timeout to socket connection to prevent hanging during HA startup
+                # Reduced from 30s to 10s to avoid blocking HA initialization
+                with socket.create_connection((hostname, port), timeout=10) as sock:
                     try:
                         sslSock = ctx.wrap_socket(sock, server_hostname=hostname)
                         sslSock.write(auth_data)
@@ -144,10 +145,13 @@ class ChamberImageThread(threading.Thread):
                         LOGGER.debug(f"SOCKET STATUS: {status}")
                         if status != 0:
                             LOGGER.error(f"Socket error: {status}")
+                            raise socket.error(f"Socket error: {status}")
                     except socket.error as e:
-                        LOGGER.error(f"Socket error: {e}")
+                        LOGGER.debug(f"Socket error during chamber image connection: {e}")
                         # Sleep to allow printer to stabilize during boot when it may fail these connection attempts repeatedly.
-                        if self._stop_event.wait(1):
+                        # Use exponential backoff to reduce resource contention during HA startup
+                        backoff = min(connect_attempts, 5)  # Cap at 5 seconds
+                        if self._stop_event.wait(backoff):
                             break
                         continue
 
@@ -209,9 +213,11 @@ class ChamberImageThread(threading.Thread):
                     time.sleep(2)  # Avoid a tight loop if this is a persistent error.
 
             except socket.timeout:
-                LOGGER.warning("Chamber image connection timed out. Printer may be off or unreachable.")
+                LOGGER.debug("Chamber image connection timed out. Printer may be off or unreachable.")
                 if not self._stop_event.is_set():
-                    time.sleep(5)  # Wait longer on timeout before retrying
+                    # Use exponential backoff: wait longer on timeouts to reduce resource usage
+                    backoff = min(connect_attempts * 2, 10)  # Cap at 10 seconds
+                    time.sleep(backoff)
 
             except Exception as e:
                 LOGGER.error(f"Chamber Image thread exception occurred:")
@@ -477,8 +483,11 @@ class BambuClient:
         self._mqtt = MqttThread(self)
         self._mqtt.start()
 
-        self._device.print_job.prune_print_history_files()
-        self._device.print_job.prune_timelapse_files()
+        # Run file pruning operations asynchronously to avoid blocking HA startup
+        # These operations can be slow with many files or on network filesystems
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, self._device.print_job.prune_print_history_files)
+        loop.run_in_executor(None, self._device.print_job.prune_timelapse_files)
 
     def subscribe_and_request_info(self):
         LOGGER.debug("Now subscribing...")
@@ -526,8 +535,14 @@ class BambuClient:
 
         self.subscribe_and_request_info()
 
-        # Start camera if enabled
-        self.start_camera()
+        # Delay camera startup to avoid competing with MQTT initialization
+        # This helps prevent HA from hanging during boot when printer is on
+        def delayed_camera_start():
+            time.sleep(2)  # 2 second delay to let MQTT stabilize
+            self.start_camera()
+        
+        if self._enable_camera and not self._test_mode:
+            threading.Thread(target=delayed_camera_start, daemon=True).start()
 
     def on_disconnect(self,
                       client_: mqtt.Client,
@@ -568,8 +583,16 @@ class BambuClient:
 
             if not self._loaded_slicer_settings:
                 # Only update slicer settings once per successful connection to the printer.
+                # Run this in a separate thread to avoid blocking MQTT message processing
+                # which could cause HA to hang during startup
                 self._loaded_slicer_settings = True
-                self.slicer_settings.update()
+                def load_settings():
+                    try:
+                        self.slicer_settings.update()
+                    except Exception as e:
+                        LOGGER.warning(f"Failed to load slicer settings: {e}")
+                        # Don't let slicer settings failures block integration startup
+                threading.Thread(target=load_settings, daemon=True).start()
 
             if self._refreshed:
                 # X1 mqtt payload is inconsistent. Adjust it for consistent logging.
@@ -674,7 +697,8 @@ class BambuClient:
 
     def ftp_connection(self) -> ImplicitFTP_TLS:
         ftp = ImplicitFTP_TLS(context=self.local_tls_context)
-        ftp.connect(host=self._device.info.ip_address, port=990, timeout=15)
+        # Reduced timeout from 15s to 10s to prevent blocking HA startup
+        ftp.connect(host=self._device.info.ip_address, port=990, timeout=10)
         ftp.login(user='bblp', passwd=self._access_code)
         ftp.prot_p()
         return ftp

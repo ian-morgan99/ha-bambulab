@@ -1501,46 +1501,56 @@ class PrintJob:
             LOGGER.debug("Skipping as pruning is disabled.")
             return
 
-        dir_path = Path(directory)
-        if not dir_path.is_dir():
-            return
-        
-        LOGGER.debug(f"{dir_path}")
-        
-        # Get list of files matching the provided list of extensions
-        matching_files = [
-            f for f in dir_path.rglob('*')            
-            if f.is_file() and f.suffix in extensions
-        ]
-        
-        # Sort files by last modification time, newest first
-        matching_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-
-        # Files to delete: those beyond the 'keep' most recent
-        old_files = matching_files[keep:]
-
-        LOGGER.debug(f"Keeping up to {keep} files. Deleting {len(old_files)} excess files.")
-        
-        for primary_file in old_files:
+        try:
+            dir_path = Path(directory)
+            if not dir_path.is_dir():
+                return
+            
+            LOGGER.debug(f"Pruning files in {dir_path}")
+            
+            # Get list of files matching the provided list of extensions
+            # Use try-except to handle potential file system errors gracefully
+            matching_files = []
             try:
-                os.remove(primary_file )
-                LOGGER.debug(f"Deleted: {primary_file }")
-            except Exception as e:
-                LOGGER.error(f"Failed to delete {primary_file}: {e}")
-                continue
+                matching_files = [
+                    f for f in dir_path.rglob('*')            
+                    if f.is_file() and f.suffix in extensions
+                ]
+            except (OSError, PermissionError) as e:
+                LOGGER.warning(f"Error accessing files in {dir_path}: {e}")
+                return
+            
+            # Sort files by last modification time, newest first
+            matching_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
 
-            # Get base name without extension
-            base_name = os.path.splitext(primary_file)[0]
+            # Files to delete: those beyond the 'keep' most recent
+            old_files = matching_files[keep:]
 
-            # Delete associated files with alternate extensions
-            for ext in extra_extensions:
-                assoc_file = base_name + ext
-                if os.path.exists(assoc_file):
-                    try:
-                        os.remove(assoc_file)
-                        LOGGER.debug(f"Deleted associated: {assoc_file}")
-                    except Exception as e:
-                        LOGGER.error(f"Failed to delete associated {assoc_file}: {e}")
+            LOGGER.debug(f"Keeping up to {keep} files. Deleting {len(old_files)} excess files.")
+            
+            for primary_file in old_files:
+                try:
+                    os.remove(primary_file)
+                    LOGGER.debug(f"Deleted: {primary_file}")
+                except Exception as e:
+                    LOGGER.error(f"Failed to delete {primary_file}: {e}")
+                    continue
+
+                # Get base name without extension
+                base_name = os.path.splitext(primary_file)[0]
+
+                # Delete associated files with alternate extensions
+                for ext in extra_extensions:
+                    assoc_file = base_name + ext
+                    if os.path.exists(assoc_file):
+                        try:
+                            os.remove(assoc_file)
+                            LOGGER.debug(f"Deleted associated: {assoc_file}")
+                        except Exception as e:
+                            LOGGER.error(f"Failed to delete associated {assoc_file}: {e}")
+        except Exception as e:
+            LOGGER.error(f"Unexpected error during file pruning in {directory}: {e}")
+            # Don't let pruning errors crash the integration
     
     def _download_timelapse(self):
         # If we are running in connection test mode, skip updating the last print task data.
