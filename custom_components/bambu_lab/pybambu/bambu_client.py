@@ -144,7 +144,8 @@ class ChamberImageThread(threading.Thread):
                         status = sslSock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
                         LOGGER.debug(f"SOCKET STATUS: {status}")
                         if status != 0:
-                            LOGGER.error(f"Socket error: {status}")
+                            LOGGER.debug(f"Socket error: {status}")
+                            # Break out of the try block to trigger retry with backoff
                             raise socket.error(f"Socket error: {status}")
                     except socket.error as e:
                         LOGGER.debug(f"Socket error during chamber image connection: {e}")
@@ -541,8 +542,7 @@ class BambuClient:
             time.sleep(2)  # 2 second delay to let MQTT stabilize
             self.start_camera()
         
-        if self._enable_camera and not self._test_mode:
-            threading.Thread(target=delayed_camera_start, daemon=True).start()
+        threading.Thread(target=delayed_camera_start, daemon=True).start()
 
     def on_disconnect(self,
                       client_: mqtt.Client,
