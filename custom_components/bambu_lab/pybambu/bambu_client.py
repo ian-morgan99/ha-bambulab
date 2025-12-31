@@ -34,6 +34,12 @@ from .commands import (
 from .tests import MockMQTTClient
 from .utils import safe_json_loads
 
+# Connection retry and timeout constants
+CAMERA_STARTUP_DELAY_SECONDS = 2  # Delay camera startup to let MQTT stabilize
+MAX_SOCKET_BACKOFF_SECONDS = 5  # Maximum backoff for socket connection retries
+TIMEOUT_BACKOFF_MULTIPLIER = 2  # Multiplier for timeout backoff calculations
+MAX_TIMEOUT_BACKOFF_SECONDS = 10  # Maximum backoff for timeout retries
+
 class WatchdogThread(threading.Thread):
 
     def __init__(self, client):
@@ -132,8 +138,9 @@ class ChamberImageThread(threading.Thread):
         while connect_attempts < MAX_CONNECT_ATTEMPTS and not self._stop_event.is_set():
             connect_attempts += 1
             try:
-                # Add timeout to socket connection to prevent hanging
-                with socket.create_connection((hostname, port), timeout=30) as sock:
+                # Add timeout to socket connection to prevent hanging during HA startup
+                # Reduced from 30s to 10s to avoid blocking HA initialization
+                with socket.create_connection((hostname, port), timeout=10) as sock:
                     try:
                         sslSock = ctx.wrap_socket(sock, server_hostname=hostname)
                         sslSock.write(auth_data)
@@ -143,11 +150,15 @@ class ChamberImageThread(threading.Thread):
                         status = sslSock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
                         LOGGER.debug(f"SOCKET STATUS: {status}")
                         if status != 0:
-                            LOGGER.error(f"Socket error: {status}")
+                            LOGGER.debug(f"Socket error: {status}")
+                            # Break out of the try block to trigger retry with backoff
+                            raise socket.error(f"Socket error: {status}")
                     except socket.error as e:
-                        LOGGER.error(f"Socket error: {e}")
+                        LOGGER.debug(f"Socket error during chamber image connection: {e}")
                         # Sleep to allow printer to stabilize during boot when it may fail these connection attempts repeatedly.
-                        if self._stop_event.wait(1):
+                        # Use exponential backoff to reduce resource contention during HA startup
+                        backoff = min(connect_attempts, MAX_SOCKET_BACKOFF_SECONDS)
+                        if self._stop_event.wait(backoff):
                             break
                         continue
 
@@ -209,9 +220,11 @@ class ChamberImageThread(threading.Thread):
                     time.sleep(2)  # Avoid a tight loop if this is a persistent error.
 
             except socket.timeout:
-                LOGGER.warning("Chamber image connection timed out. Printer may be off or unreachable.")
+                LOGGER.debug("Chamber image connection timed out. Printer may be off or unreachable.")
                 if not self._stop_event.is_set():
-                    time.sleep(5)  # Wait longer on timeout before retrying
+                    # Use exponential backoff: wait longer on timeouts to reduce resource usage
+                    backoff = min(connect_attempts * TIMEOUT_BACKOFF_MULTIPLIER, MAX_TIMEOUT_BACKOFF_SECONDS)
+                    time.sleep(backoff)
 
             except Exception as e:
                 LOGGER.error(f"Chamber Image thread exception occurred:")
@@ -465,7 +478,7 @@ class BambuClient:
         self.client.reconnect_delay_set(min_delay=1, max_delay=1)
 
         # Run the blocking tls_set method in a separate thread
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.setup_tls)
 
         if self._local_mqtt:
@@ -477,8 +490,10 @@ class BambuClient:
         self._mqtt = MqttThread(self)
         self._mqtt.start()
 
-        self._device.print_job.prune_print_history_files()
-        self._device.print_job.prune_timelapse_files()
+        # Run file pruning operations asynchronously to avoid blocking HA startup
+        # These operations can be slow with many files or on network filesystems
+        loop.run_in_executor(None, self._device.print_job.prune_print_history_files)
+        loop.run_in_executor(None, self._device.print_job.prune_timelapse_files)
 
     def subscribe_and_request_info(self):
         LOGGER.debug("Now subscribing...")
@@ -526,8 +541,13 @@ class BambuClient:
 
         self.subscribe_and_request_info()
 
-        # Start camera if enabled
-        self.start_camera()
+        # Delay camera startup to avoid competing with MQTT initialization
+        # This helps prevent HA from hanging during boot when printer is on
+        def delayed_camera_start():
+            time.sleep(CAMERA_STARTUP_DELAY_SECONDS)
+            self.start_camera()
+        
+        threading.Thread(target=delayed_camera_start, daemon=True).start()
 
     def on_disconnect(self,
                       client_: mqtt.Client,
@@ -568,8 +588,16 @@ class BambuClient:
 
             if not self._loaded_slicer_settings:
                 # Only update slicer settings once per successful connection to the printer.
+                # Run this in a separate thread to avoid blocking MQTT message processing
+                # which could cause HA to hang during startup
                 self._loaded_slicer_settings = True
-                self.slicer_settings.update()
+                def load_settings():
+                    try:
+                        self.slicer_settings.update()
+                    except Exception as e:
+                        LOGGER.warning(f"Failed to load slicer settings: {e}")
+                        # Don't let slicer settings failures block integration startup
+                threading.Thread(target=load_settings, daemon=True).start()
 
             if self._refreshed:
                 # X1 mqtt payload is inconsistent. Adjust it for consistent logging.
@@ -674,7 +702,8 @@ class BambuClient:
 
     def ftp_connection(self) -> ImplicitFTP_TLS:
         ftp = ImplicitFTP_TLS(context=self.local_tls_context)
-        ftp.connect(host=self._device.info.ip_address, port=990, timeout=15)
+        # Reduced timeout from 15s to 10s to prevent blocking HA startup
+        ftp.connect(host=self._device.info.ip_address, port=990, timeout=10)
         ftp.login(user='bblp', passwd=self._access_code)
         ftp.prot_p()
         return ftp
