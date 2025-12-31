@@ -66,6 +66,9 @@ from .commands import (
     HEATBED_LIGHT_OFF,
 )
 
+# FTP error codes
+FTP_FILE_UNAVAILABLE = '550'  # File unavailable error code
+
 class Device:
     def __init__(self, client):
         self._client = client
@@ -1335,7 +1338,7 @@ class PrintJob:
             return str(cache_file_path)
                     
         except ftplib.error_perm as e:
-             if '550' not in str(e.args): # 550 is unavailable.
+             if FTP_FILE_UNAVAILABLE not in str(e.args):
                  LOGGER.debug(f"Failed to download model at '{file_path}': {e}")
         except Exception as e:
             LOGGER.debug(f"Unexpected exception at '{file_path}': {type(e)} Args: {e}")
@@ -1617,7 +1620,7 @@ class PrintJob:
                             f.flush()
                         
                 except ftplib.error_perm as e:
-                    if '550' not in str(e.args): # 550 is unavailable.
+                    if FTP_FILE_UNAVAILABLE not in str(e.args):
                         LOGGER.debug(f"Failed to download timelapse at '{file_path}': {e}")
                 except Exception as e:
                     LOGGER.debug(f"Unexpected exception downloading timelapse at '{file_path}': {type(e)} Args: {e}")
@@ -1699,7 +1702,7 @@ class PrintJob:
                             LOGGER.warning(f"Failed to delete '{file_path}' from printer: {e}")
                         
                 except ftplib.error_perm as e:
-                    if '550' not in str(e.args): # 550 is unavailable.
+                    if FTP_FILE_UNAVAILABLE not in str(e.args):
                         LOGGER.warning(f"Failed to download AVI recording at '{file_path}': {e}")
                 except Exception as e:
                     LOGGER.error(f"Unexpected exception downloading AVI recording at '{file_path}': {type(e)} Args: {e}")

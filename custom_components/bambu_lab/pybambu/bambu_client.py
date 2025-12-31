@@ -713,13 +713,13 @@ class BambuClient:
                                 date_str = f"{parts[5]} {parts[6]} {datetime.now().year} {parts[7]}"
                                 try:
                                     file_time = datetime.strptime(date_str, '%b %d %Y %H:%M')
-                                except:
+                                except ValueError:
                                     continue
                             else:  # Has year (older file)
                                 date_str = f"{parts[5]} {parts[6]} {parts[7]}"
                                 try:
                                     file_time = datetime.strptime(date_str, '%b %d %Y')
-                                except:
+                                except ValueError:
                                     continue
                             
                             if latest_time is None or file_time > latest_time:
