@@ -299,6 +299,8 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
                 result = self._service_call_filament_drying(data)
             case "download_timelapse":
                 result = self._service_call_download_timelapse(data)
+            case "download_avi_recording":
+                result = self._service_call_download_avi_recording(data)
             case _:
                 LOGGER.error(f"Unknown service call: {data}")
 
@@ -689,6 +691,17 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         model.print_job._download_timelapse()
         return True
 
+    def _service_call_download_avi_recording(self, data: dict):
+        """Service call to manually download the latest AVI recording."""
+        LOGGER.debug("Triggering manual AVI recording download")
+        delete_after_download = data.get("delete_after_download", False)
+        model = self.get_model()
+        if not model or not getattr(model, "print_job", None):
+            LOGGER.debug("AVI recording download aborted: model or print_job not available")
+            return False
+        model.print_job._download_avi_recording(delete_after_download)
+        return True
+
     def _get_latest_timelapse_file(self) -> Optional[Dict[str, Any]]:
         """Get the latest timelapse file data."""
         # Ensure we have a valid event loop before scheduling the coroutine
@@ -736,6 +749,19 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as e:
             LOGGER.debug(f"Error getting latest timelapse attributes: {e}")
         return {}
+
+    def get_ftps_status(self) -> dict:
+        """Get FTPS connectivity status and latest file info."""
+        try:
+            return self.client.check_ftps_connectivity()
+        except Exception as e:
+            LOGGER.debug(f"Error getting FTPS status: {e}")
+            return {
+                "connected": False,
+                "latest_file": None,
+                "latest_file_time": None,
+                "error": str(e)
+            }
 
     async def _async_update_data(self):
         LOGGER.debug(f"_async_update_data() called")

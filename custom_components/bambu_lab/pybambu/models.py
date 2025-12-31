@@ -1550,6 +1550,16 @@ class PrintJob:
         thread = threading.Thread(target=self._async_download_timelapse)
         thread.start()
         
+    def _download_avi_recording(self, delete_after_download=False):
+        """Download the latest AVI recording from /ipcam folder."""
+        # If we are running in connection test mode, skip.
+        if self._client._test_mode:
+            return
+        if not self._client.ftp_enabled:
+            return
+        thread = threading.Thread(target=self._async_download_avi_recording, args=(delete_after_download,))
+        thread.start()
+        
     def _async_download_timelapse(self):
         current_thread = threading.current_thread()
         current_thread.setName(f"{self._client._device.info.device_type}-FTP-{threading.get_native_id()}")
@@ -1633,6 +1643,79 @@ class PrintJob:
         self.prune_timelapse_files()
 
         LOGGER.debug(f"Done downloading timelapse by FTP. Elapsed time = {(end_time-start_time).seconds}s") 
+
+    def _async_download_avi_recording(self, delete_after_download=False):
+        """Download the latest AVI recording from /ipcam folder."""
+        current_thread = threading.current_thread()
+        current_thread.setName(f"{self._client._device.info.device_type}-FTP-AVI-{threading.get_native_id()}")
+        start_time = datetime.now()
+        LOGGER.debug(f"Downloading latest AVI recording by FTP")
+
+        ftp = None
+        try:
+            # Open the FTP connection with timeout protection
+            ftp = self._client.ftp_connection()
+            avi_extensions = ['.avi']
+            file_path = self._find_latest_file(ftp, ['/ipcam'], avi_extensions)
+            if file_path is not None:
+                # file_path is of form '/ipcam/foo.avi'
+                local_file_path = os.path.join(self._client.cache_path, file_path.lstrip('/'))
+                directory_path = os.path.dirname(local_file_path)
+                os.makedirs(directory_path, exist_ok=True)
+
+                try:
+                    # Get the file size from FTP
+                    size = ftp.size(file_path)
+                    LOGGER.debug(f"AVI recording file exists. Size: {size} bytes.")
+                    
+                    # Check if file already exists with same size
+                    should_download = False
+                    if os.path.exists(local_file_path):
+                        local_file_size = os.path.getsize(local_file_path)
+                        if local_file_size == size:
+                            LOGGER.debug(f"AVI recording file found in cache.")
+                        else:
+                            LOGGER.debug(f"AVI recording file size differs (local: {local_file_size}, remote: {size}). Re-downloading.")
+                            should_download = True
+                    else:
+                        LOGGER.debug(f"AVI recording file doesn't exist locally. Downloading.")
+                        should_download = True
+                    
+                    if should_download:
+                        # Download AVI
+                        with open(local_file_path, 'wb') as f:
+                            LOGGER.info(f"Downloading '{file_path}'")
+                            ftp.retrbinary(f"RETR {file_path}", f.write)
+                            f.flush()
+                        LOGGER.info(f"Downloaded AVI recording to: {local_file_path}")
+                    
+                    # Delete from printer if requested
+                    if delete_after_download:
+                        try:
+                            LOGGER.info(f"Deleting '{file_path}' from printer")
+                            ftp.delete(file_path)
+                            LOGGER.info(f"Deleted '{file_path}' from printer")
+                        except ftplib.error_perm as e:
+                            LOGGER.warning(f"Failed to delete '{file_path}' from printer: {e}")
+                        
+                except ftplib.error_perm as e:
+                    if '550' not in str(e.args): # 550 is unavailable.
+                        LOGGER.warning(f"Failed to download AVI recording at '{file_path}': {e}")
+                except Exception as e:
+                    LOGGER.error(f"Unexpected exception downloading AVI recording at '{file_path}': {type(e)} Args: {e}")
+
+        except Exception as e:
+            LOGGER.error(f"Unexpected error downloading AVI recording via FTP: {type(e)} Args: {e}", exc_info=True)
+        finally:
+            # Always try to close FTP connection
+            if ftp is not None:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass  # Ignore errors when closing
+
+        end_time = datetime.now()
+        LOGGER.debug(f"Done downloading AVI recording by FTP. Elapsed time = {(end_time-start_time).seconds}s")
 
     def _delete_last_print_files(self):
         """Delete all identifiable files created since print start when incognito mode is enabled"""

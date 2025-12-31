@@ -345,3 +345,21 @@ download_timelapse:
       selector:
         device:
           integration: bambu_lab
+
+download_avi_recording:
+  name: Download AVI Recording
+  description: Download the latest AVI recording from the /ipcam folder.
+  fields:
+    device_id:
+      name: Bambu Printer
+      required: true
+      selector:
+        device:
+          integration: bambu_lab
+    delete_after_download:
+      name: Delete After Download
+      description: Delete the AVI file from the printer after downloading it.
+      default: false
+      required: false
+      selector:
+        boolean:

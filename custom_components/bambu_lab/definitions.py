@@ -681,6 +681,14 @@ PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
             "alert_active": self.coordinator.get_model().spaghetti_detector.is_alert_active,
         },
         exists_fn=lambda coordinator: coordinator.get_model().supports_feature(Features.CAMERA_IMAGE),
+    ),
+    BambuLabSensorEntityDescription(
+        key="ftps_connectivity",
+        translation_key="ftps_connectivity",
+        icon="mdi:lan-connect",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda self: "Connected" if self.coordinator.get_ftps_status().get("connected", False) else "Disconnected",
+        extra_attributes=lambda self: self.coordinator.get_ftps_status(),
     )
 )
 

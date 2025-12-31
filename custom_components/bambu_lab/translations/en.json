@@ -649,6 +649,23 @@
           }
         }
       },
+      "ftps_connectivity": {
+        "name": "FTPS connectivity",
+        "state_attributes": {
+          "connected": {
+            "name": "Connected"
+          },
+          "latest_file": {
+            "name": "Latest file"
+          },
+          "latest_file_time": {
+            "name": "Latest file time"
+          },
+          "error": {
+            "name": "Error"
+          }
+        }
+      },
       "humidity_index": {
         "name": "Humidity index"
       },
