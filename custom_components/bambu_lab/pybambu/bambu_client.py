@@ -34,6 +34,12 @@ from .commands import (
 from .tests import MockMQTTClient
 from .utils import safe_json_loads
 
+# Connection retry and timeout constants
+CAMERA_STARTUP_DELAY_SECONDS = 2  # Delay camera startup to let MQTT stabilize
+MAX_SOCKET_BACKOFF_SECONDS = 5  # Maximum backoff for socket connection retries
+TIMEOUT_BACKOFF_MULTIPLIER = 2  # Multiplier for timeout backoff calculations
+MAX_TIMEOUT_BACKOFF_SECONDS = 10  # Maximum backoff for timeout retries
+
 class WatchdogThread(threading.Thread):
 
     def __init__(self, client):
@@ -151,7 +157,7 @@ class ChamberImageThread(threading.Thread):
                         LOGGER.debug(f"Socket error during chamber image connection: {e}")
                         # Sleep to allow printer to stabilize during boot when it may fail these connection attempts repeatedly.
                         # Use exponential backoff to reduce resource contention during HA startup
-                        backoff = min(connect_attempts, 5)  # Cap at 5 seconds
+                        backoff = min(connect_attempts, MAX_SOCKET_BACKOFF_SECONDS)
                         if self._stop_event.wait(backoff):
                             break
                         continue
@@ -217,7 +223,7 @@ class ChamberImageThread(threading.Thread):
                 LOGGER.debug("Chamber image connection timed out. Printer may be off or unreachable.")
                 if not self._stop_event.is_set():
                     # Use exponential backoff: wait longer on timeouts to reduce resource usage
-                    backoff = min(connect_attempts * 2, 10)  # Cap at 10 seconds
+                    backoff = min(connect_attempts * TIMEOUT_BACKOFF_MULTIPLIER, MAX_TIMEOUT_BACKOFF_SECONDS)
                     time.sleep(backoff)
 
             except Exception as e:
@@ -472,7 +478,7 @@ class BambuClient:
         self.client.reconnect_delay_set(min_delay=1, max_delay=1)
 
         # Run the blocking tls_set method in a separate thread
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.setup_tls)
 
         if self._local_mqtt:
@@ -486,7 +492,6 @@ class BambuClient:
 
         # Run file pruning operations asynchronously to avoid blocking HA startup
         # These operations can be slow with many files or on network filesystems
-        loop = asyncio.get_event_loop()
         loop.run_in_executor(None, self._device.print_job.prune_print_history_files)
         loop.run_in_executor(None, self._device.print_job.prune_timelapse_files)
 
@@ -539,7 +544,7 @@ class BambuClient:
         # Delay camera startup to avoid competing with MQTT initialization
         # This helps prevent HA from hanging during boot when printer is on
         def delayed_camera_start():
-            time.sleep(2)  # 2 second delay to let MQTT stabilize
+            time.sleep(CAMERA_STARTUP_DELAY_SECONDS)
             self.start_camera()
         
         threading.Thread(target=delayed_camera_start, daemon=True).start()
