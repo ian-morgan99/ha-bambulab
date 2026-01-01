@@ -44,11 +44,15 @@ BAMBU_LAB_CARDS = [
 class Options(IntEnum):
     CAMERA = 1,
     IMAGECAMERA = 2,
+    FTPS = 3,
+    INCOGNITO_MODE = 4,
     FIRMWAREUPDATE = 6
 
 OPTION_NAME = {
     Options.CAMERA:         "enable_camera",
     Options.IMAGECAMERA:    "camera_as_image_sensor",
+    Options.FTPS:           "enable_ftps",
+    Options.INCOGNITO_MODE: "incognito_mode",
     Options.FIRMWAREUPDATE: "enable_firmware_update",
 }
 
