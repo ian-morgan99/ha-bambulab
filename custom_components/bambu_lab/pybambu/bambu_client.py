@@ -374,7 +374,8 @@ class BambuClient:
         self._local_mqtt = config.get('local_mqtt', False)
         self._serial = config.get('serial', '')
         self._enable_camera = config.get('enable_camera', True) and (self.host != "")
-        self._enable_ftp = (self.host != "")
+        # Initialize FTPS from config option, defaulting to enabled if host is available
+        self._enable_ftp = config.get('enable_ftps', True) and (self.host != "")
         if self._serial.startswith('MOCK-'):
             self._enable_ftp = False
             self._enable_camera = False
@@ -445,6 +446,16 @@ class BambuClient:
     @property
     def ftp_enabled(self):
         return self._enable_ftp
+
+    def set_ftps_enabled(self, enable):
+        """Enable or disable FTPS functionality."""
+        self._enable_ftp = enable and (self.host != "")
+        LOGGER.debug(f"FTPS enabled set to: {self._enable_ftp}")
+
+    def set_incognito_mode(self, enable):
+        """Enable or disable incognito mode."""
+        self._incognito_mode = enable
+        LOGGER.debug(f"Incognito mode set to: {self._incognito_mode}")
 
     @property
     def local_tls_context(self):

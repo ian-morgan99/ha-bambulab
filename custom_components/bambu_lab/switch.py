@@ -45,17 +45,24 @@ CAMERA_IMAGE_SENSOR_DESCRIPION = SwitchEntityDescription(
     entity_category=EntityCategory.CONFIG,
 )
 
-FTP_SWITCH_DESCRIPTION = SwitchEntityDescription(
-    key="ftp",
-    icon="mdi:folder-network",
-    translation_key="ftp",
-    entity_category=EntityCategory.CONFIG,
-)
-
 SPAGHETTI_DETECTION_SWITCH_DESCRIPTION = SwitchEntityDescription(
     key="spaghetti_detection",
     icon="mdi:alert-octagon",
     translation_key="spaghetti_detection",
+    entity_category=EntityCategory.CONFIG,
+)
+
+INCOGNITO_MODE_SWITCH_DESCRIPTION = SwitchEntityDescription(
+    key="incognito_mode",
+    icon="mdi:incognito",
+    translation_key="incognito_mode",
+    entity_category=EntityCategory.CONFIG,
+)
+
+FTPS_SWITCH_DESCRIPTION = SwitchEntityDescription(
+    key="ftps",
+    icon="mdi:folder-network",
+    translation_key="ftps",
     entity_category=EntityCategory.CONFIG,
 )
 
@@ -74,6 +81,10 @@ async def async_setup_entry(
 
     # A camera is always present so the switch to turn it on and off should be always present.
     async_add_entities([BambuLabCameraSwitch(coordinator, entry)])
+
+    # Add FTPS and Incognito Mode switches (always present)
+    async_add_entities([BambuLabFTPSSwitch(coordinator, entry)])
+    async_add_entities([BambuLabIncognitoModeSwitch(coordinator, entry)])
 
     if coordinator.get_model().supports_feature(Features.CAMERA_IMAGE):
         async_add_entities([BambuLabCameraImageSwitch(coordinator, entry)])
@@ -257,3 +268,61 @@ class BambuLabSpaghettiDetectionSwitch(BambuLabSwitch):
         self.coordinator.get_model().spaghetti_detector.disable()
         self._attr_is_on = False
         self.async_write_ha_state()
+
+
+class BambuLabFTPSSwitch(BambuLabSwitch):
+    """BambuLab FTPS Enable Switch"""
+
+    entity_description = FTPS_SWITCH_DESCRIPTION
+
+    def __init__(
+            self,
+            coordinator: BambuDataUpdateCoordinator,
+            config_entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, config_entry)
+        self._attr_is_on = self.coordinator.get_option_enabled(Options.FTPS)
+
+    @property
+    def icon(self) -> str:
+        """Return the icon for the switch."""
+        return "mdi:folder-network" if self.is_on else "mdi:folder-network-outline"
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable FTPS."""
+        self._attr_is_on = True
+        await self.coordinator.set_option_enabled(Options.FTPS, True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable FTPS."""
+        self._attr_is_on = False
+        await self.coordinator.set_option_enabled(Options.FTPS, False)
+
+
+class BambuLabIncognitoModeSwitch(BambuLabSwitch):
+    """BambuLab Incognito Mode Switch"""
+
+    entity_description = INCOGNITO_MODE_SWITCH_DESCRIPTION
+
+    def __init__(
+            self,
+            coordinator: BambuDataUpdateCoordinator,
+            config_entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, config_entry)
+        self._attr_is_on = self.coordinator.get_option_enabled(Options.INCOGNITO_MODE)
+
+    @property
+    def icon(self) -> str:
+        """Return the icon for the switch."""
+        return "mdi:incognito" if self.is_on else "mdi:incognito-off"
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable incognito mode."""
+        self._attr_is_on = True
+        await self.coordinator.set_option_enabled(Options.INCOGNITO_MODE, True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable incognito mode."""
+        self._attr_is_on = False
+        await self.coordinator.set_option_enabled(Options.INCOGNITO_MODE, False)

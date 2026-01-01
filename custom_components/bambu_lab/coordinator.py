@@ -1025,6 +1025,10 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         match option:
             case Options.CAMERA:
                 default = True
+            case Options.FTPS:
+                default = (self.config_entry.options.get('host', '') != "")
+            case Options.INCOGNITO_MODE:
+                default = False
 
         return options.get(OPTION_NAME[option], default)
         
@@ -1051,6 +1055,12 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             if option == Options.CAMERA:
                 # Camera option changed, need to poke bambu client to update its camera state:
                 self.client.set_camera_enabled(enable)
+            elif option == Options.FTPS:
+                # FTPS option changed, need to update bambu client FTPS state:
+                self.client.set_ftps_enabled(enable)
+            elif option == Options.INCOGNITO_MODE:
+                # Incognito mode changed, update bambu client incognito mode:
+                self.client.set_incognito_mode(enable)
 
     def get_option_value(self, option: Options) -> int:
         options = dict(self.config_entry.options)

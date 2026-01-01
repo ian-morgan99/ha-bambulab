@@ -905,6 +905,12 @@
       "ftp": {
         "name": "Load model data from printer"
       },
+      "ftps": {
+        "name": "Enable FTPS"
+      },
+      "incognito_mode": {
+        "name": "Incognito Mode"
+      },
       "prompt_sound": {
         "name": "Allow Prompt Sound"
       },
