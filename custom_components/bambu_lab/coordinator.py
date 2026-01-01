@@ -1026,8 +1026,10 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             case Options.CAMERA:
                 default = True
             case Options.FTPS:
-                default = (self.config_entry.data.get('host', '') != "" or 
-                          self.config_entry.options.get('host', '') != "")
+                default = (
+                    self.config_entry.data.get('host', '') != "" or 
+                    self.config_entry.options.get('host', '') != ""
+                )
             case Options.INCOGNITO_MODE:
                 default = False
 
