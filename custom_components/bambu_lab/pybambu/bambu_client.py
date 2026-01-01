@@ -447,6 +447,11 @@ class BambuClient:
     def ftp_enabled(self):
         return self._enable_ftp
 
+    @property
+    def incognito_mode(self):
+        """Get the current incognito mode state."""
+        return self._incognito_mode
+
     def set_ftps_enabled(self, enable):
         """Enable or disable FTPS functionality."""
         self._enable_ftp = enable and (self.host != "")
