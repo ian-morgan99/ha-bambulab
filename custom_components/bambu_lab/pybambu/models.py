@@ -62,12 +62,13 @@ from .commands import (
     PROMPT_SOUND_DISABLE,
     AIRDUCT_SET_COOLING,
     AIRDUCT_SET_HEATING_FILTER,
-    SPEED_PROFILE_TEMPLATE, BUZZER_SET_SILENT, BUZZER_SET_ALARM, BUZZER_SET_BEEPING, HEATBED_LIGHT_ON,
+    SPEED_PROFILE_TEMPLATE,
+    BUZZER_SET_SILENT,
+    BUZZER_SET_ALARM,
+    BUZZER_SET_BEEPING,
+    HEATBED_LIGHT_ON,
     HEATBED_LIGHT_OFF,
 )
-
-# FTP error codes
-FTP_FILE_UNAVAILABLE = '550'  # File unavailable error code
 
 class Device:
     def __init__(self, client):
@@ -151,22 +152,19 @@ class Device:
             self.lights.observe_system_command(data)
 
     def supports_feature(self, feature):
+        a1_printers = {Printers.A1, Printers.A1MINI}
+        h2_printers = {Printers.H2C, Printers.H2D, Printers.H2DPRO, Printers.H2S}
+        p1_printers = {Printers.P1P, Printers.P1S}
+        p2_printers = {Printers.P2S}
+        x1_printers = {Printers.X1, Printers.X1C, Printers.X1E}
+        dual_nozzle_printers = {Printers.H2C, Printers.H2D, Printers.H2DPRO}
+        model = self.info.device_type
 
         # First check known early feature check scenarios:
         if feature == Features.CAMERA_RTSP:
-            return (self.info.device_type == Printers.H2C or
-                    self.info.device_type == Printers.H2D or
-                    self.info.device_type == Printers.H2DPRO or
-                    self.info.device_type == Printers.H2S or
-                    self.info.device_type == Printers.P2S or
-                    self.info.device_type == Printers.X1 or
-                    self.info.device_type == Printers.X1C or
-                    self.info.device_type == Printers.X1E)
+            return model in (h2_printers | p2_printers | x1_printers)
         elif feature == Features.CAMERA_IMAGE:
-            return (self.info.device_type == Printers.A1 or
-                    self.info.device_type == Printers.A1MINI or
-                    self.info.device_type == Printers.P1P or
-                    self.info.device_type == Printers.P1S)
+            return model in (a1_printers | p1_printers)
 
         # Now check that we have a version. All tests after this are expected to only be called after the
         # first full set of data from the printer has been received and so version will be available.
@@ -176,195 +174,105 @@ class Device:
 
         # All following features should only be every checked after full initialization data is available.
         if feature == Features.AUX_FAN:
-            return not (self.info.device_type == Printers.A1 or
-                        self.info.device_type == Printers.A1MINI)
+            return model not in a1_printers
         elif feature == Features.CHAMBER_FAN:
             # The P1P may not have a fan but we don't have a perfectly reliable way to detect that. The p1s upgrade
             # flag would largely be good though but not accessible here.
-            return not (self.info.device_type == Printers.A1 or
-                        self.info.device_type == Printers.A1MINI)
+            return model not in a1_printers
         elif feature == Features.CHAMBER_TEMPERATURE:
-            return (self.info.device_type == Printers.H2C or
-                    self.info.device_type == Printers.H2D or
-                    self.info.device_type == Printers.H2DPRO or
-                    self.info.device_type == Printers.H2S or
-                    self.info.device_type == Printers.P2S or
-                    self.info.device_type == Printers.X1 or
-                    self.info.device_type == Printers.X1C or
-                    self.info.device_type == Printers.X1E)
+            return model in (h2_printers | p2_printers | x1_printers)
         elif feature == Features.AMS:
             return len(self.ams.data) != 0
         elif feature == Features.K_VALUE:
-            return (self.info.device_type == Printers.A1 or
-                    self.info.device_type == Printers.A1MINI or
-                    self.info.device_type == Printers.P1P or
-                    self.info.device_type == Printers.P1S)
+            return model in (a1_printers | p1_printers)
         elif feature == Features.AMS_TEMPERATURE:
-            if (self.info.device_type == Printers.A1 or
-                self.info.device_type == Printers.A1MINI):
+            if model in a1_printers:
                 return self.supports_sw_version("01.06.10.33")
-            elif (self.info.device_type == Printers.H2C or
-                  self.info.device_type == Printers.H2D or
-                  self.info.device_type == Printers.H2DPRO or
-                  self.info.device_type == Printers.H2S or 
-                  self.info.device_type == Printers.P2S or
-                  self.info.device_type == Printers.X1 or
-                  self.info.device_type == Printers.X1C or
-                  self.info.device_type == Printers.X1E):
-                return True
-            elif (self.info.device_type == Printers.P1S or
-                  self.info.device_type == Printers.P1P):
+            elif model in p1_printers:
                 return self.supports_sw_version("01.07.50.18")
-            return False
+            return True
         elif feature == Features.AIRDUCT_MODE:
             # Airduct mode (Filter/Heating and Cooling) is currently only present on P2S
-            if self.info.device_type == Printers.P2S:
+            if model in {Printers.P2S, Printers.H2C}:
+                # CHECK H2C SUPPORT FOR THIS
                 return True
-            
             return False
         elif feature == Features.HYBRID_MODE_BLOCKS_CONTROL:
-            if (self.info.device_type == Printers.P1S or
-                self.info.device_type == Printers.P1P):
+            if model in p1_printers:
                 # Not sure what the first version that did this was. At least this - could be earlier.
                 return self.supports_sw_version("01.07.00.00")
             # Only the P1 firmware did this as far as I know. Not the A1.
             return False
         elif feature == Features.DOOR_SENSOR:
-            if (self.info.device_type in [Printers.X1,
-                                          Printers.X1C]):
+            if model in (h2_printers | p2_printers):
+                return True
+            if model in x1_printers:
                 return self.supports_sw_version("01.07.00.00")
-            return (self.info.device_type == Printers.H2C or
-                    self.info.device_type == Printers.H2D or
-                    self.info.device_type == Printers.H2DPRO or
-                    self.info.device_type == Printers.H2S or
-                    self.info.device_type == Printers.P2S or
-                    self.info.device_type == Printers.X1E)
+            return False
         elif feature == Features.AMS_READ_RFID_COMMAND:
-            if (self.info.device_type == Printers.A1 or
-                self.info.device_type == Printers.A1MINI):
+            if model in a1_printers:
                 return self.supports_sw_version("01.06.00.00")
-            if (self.info.device_type == Printers.P1P or
-                self.info.device_type == Printers.P1S):
+            if model in p1_printers:
                 return self.supports_sw_version("01.08.01.00")
-            if (self.info.device_type == Printers.X1 or
-                self.info.device_type == Printers.X1C or
-                self.info.device_type == Printers.X1E):
+            if model in x1_printers:
                 return self.supports_sw_version("01.09.00.00")
             return True
         elif feature == Features.AMS_FILAMENT_REMAINING:
-            if (self.info.device_type == Printers.A1 or
-                self.info.device_type == Printers.A1MINI):
+            if model in a1_printers:
                 # Technically this is not the AMS Lite but that's currently tied to only these printer types.
                 # This needs fixing now the A1 printers support the other AMS models.
-                return False
+                return self.supports_sw_version("01.06.10.33")
             return True
         elif feature == Features.PROMPT_SOUND:
-            if (self.info.device_type == Printers.A1 or
-                self.info.device_type == Printers.A1MINI or
-                self.info.device_type == Printers.H2C or
-                self.info.device_type == Printers.H2D or
-                self.info.device_type == Printers.H2DPRO or
-                self.info.device_type == Printers.H2S or
-                self.info.device_type == Printers.P2S):
+            if model in (a1_printers | h2_printers | p2_printers):
                 return not self.print_fun.mqtt_signature_required
             return False
         elif feature == Features.AMS_SWITCH_COMMAND:
-            if (self.info.device_type == Printers.A1 or
-                self.info.device_type == Printers.A1MINI or
-                self.info.device_type == Printers.H2C or
-                self.info.device_type == Printers.H2D or
-                self.info.device_type == Printers.H2DPRO or
-                self.info.device_type == Printers.P2S or
-                self.info.device_type == Printers.X1E):
-                return True
-            elif (self.info.device_type == Printers.P1S or
-                  self.info.device_type == Printers.P1P):
+            if model in p1_printers:
                 return self.supports_sw_version("01.02.99.10")
-            elif (self.info.device_type == Printers.X1 or
-                  self.info.device_type == Printers.X1C):
+            elif model in x1_printers:
                 return self.supports_sw_version("01.05.06.01")
-            return False
+            return True
         elif feature == Features.AMS_HUMIDITY:
-            if (self.info.device_type == Printers.A1 or
-                self.info.device_type == Printers.A1MINI):
+            if model in a1_printers:
                 return self.supports_sw_version("01.06.10.33")
-            elif (self.info.device_type == Printers.H2C or
-                  self.info.device_type == Printers.H2D or
-                  self.info.device_type == Printers.H2DPRO or
-                  self.info.device_type == Printers.H2S or
-                  self.info.device_type == Printers.P2S):
-                return True
-            elif (self.info.device_type == Printers.X1 or
-                  self.info.device_type == Printers.X1C):
-                return self.supports_sw_version("01.08.50.18")
-            elif (self.info.device_type == Printers.P1S or
-                  self.info.device_type == Printers.P1P):
+            elif model in p1_printers:
                 return self.supports_sw_version("01.07.50.18")
-            return False
+            elif model in x1_printers:
+                return self.supports_sw_version("01.08.50.18")
+            return True
         elif feature == Features.AMS_DRYING:
-            if (self.info.device_type == Printers.A1 or
-                  self.info.device_type == Printers.A1MINI):
+            if model in a1_printers:
                 return self.supports_sw_version("01.06.10.33")
-            elif (self.info.device_type == Printers.H2C or
-                self.info.device_type == Printers.H2D or
-                self.info.device_type == Printers.H2DPRO or
-                self.info.device_type == Printers.H2S or
-                self.info.device_type == Printers.P2S):
-                return True
-            elif (self.info.device_type == Printers.X1 or
-                  self.info.device_type == Printers.X1C):
-                return self.supports_sw_version("01.08.50.18")
-            elif (self.info.device_type == Printers.P1S or
-                  self.info.device_type == Printers.P1P):
+            elif model in p1_printers:
                 return self.supports_sw_version("01.07.50.18")
-            # This needs fixing now the A1 printers support the other AMS models.
-            return False
+            elif model in x1_printers:
+                return self.supports_sw_version("01.08.50.18")
+            return True
         elif feature == Features.CHAMBER_LIGHT_2:
-            return (self.info.device_type == Printers.H2C or
-                    self.info.device_type == Printers.H2D or
-                    self.info.device_type == Printers.H2DPRO or
-                    self.info.device_type == Printers.H2S)
+            return model in h2_printers
         elif feature == Features.DUAL_NOZZLES:
-            return (self.info.device_type == Printers.H2C or
-                    self.info.device_type == Printers.H2D or
-                    self.info.device_type == Printers.H2DPRO)
+            return model in dual_nozzle_printers
         elif feature == Features.EXTRUDER_TOOL:
-            return (self.info.device_type == Printers.H2C or
-                    self.info.device_type == Printers.H2D or
-                    self.info.device_type == Printers.H2DPRO or
-                    self.info.device_type == Printers.H2S)
+            return model in h2_printers
         elif feature == Features.MQTT_ENCRYPTION_FIRMWARE:
-            if (self.info.device_type == Printers.A1 or
-                self.info.device_type == Printers.A1MINI):
+            if model in a1_printers:
                 return self.supports_sw_version("01.05.00.00")
-            elif (self.info.device_type == Printers.H2D):
-                return self.supports_sw_version("01.01.01.00")
-            elif (self.info.device_type == Printers.H2DPRO):
-                return self.supports_sw_version("01.01.01.00")
-            elif (self.info.device_type == Printers.H2S or
-                  self.info.device_type == Printers.P2S):
-                return True
-            elif (self.info.device_type == Printers.P1S or
-                  self.info.device_type == Printers.P1P):
+            elif model in {Printers.H2D, Printers.H2DPRO}:
+                return self.supports_sw_version("01.01.00.00")
+            elif model in p1_printers:
                 return self.supports_sw_version("01.08.02.00")
-            elif (self.info.device_type == Printers.X1 or 
-                  self.info.device_type == Printers.X1C):
+            elif model in x1_printers:
                 return self.supports_sw_version("01.08.50.32")
-            return False
+            return True
         elif feature == Features.FIRE_ALARM_BUZZER:
-            return (self.info.device_type == Printers.H2D or
-                    self.info.device_type == Printers.H2DPRO or
-                    self.info.device_type == Printers.H2S)
+            return model in h2_printers
         elif feature == Features.HEATBED_LIGHT:
-            return (self.info.device_type == Printers.H2C or
-                    self.info.device_type == Printers.H2D or
-                    self.info.device_type == Printers.H2DPRO or
-                    self.info.device_type == Printers.H2S)
+            return model in h2_printers
         elif feature == Features.SUPPORTS_EARLY_FTP_DOWNLOAD:
-            return (self.info.device_type == Printers.A1 or
-                    self.info.device_type == Printers.A1MINI or
-                    self.info.device_type == Printers.P1P or
-                    self.info.device_type == Printers.P1S)
+            return model in (a1_printers | p1_printers)
+        elif feature == Features.SECONDARY_AUX_FAN:
+            return model in p2_printers
         return False
     
     def supports_sw_version(self, version: str) -> bool:
@@ -538,8 +446,8 @@ class Temperature:
         self.bed_temp = 0
         self.target_bed_temp = 0
         self.chamber_temp = 0
-        self.nozzle_temps = { 0: 0, 1: 0}
-        self.target_nozzle_temps = { 0:0, 1: 0}
+        self.nozzle_temps = { 0: 0, 1: 0, 15: 0}
+        self.target_nozzle_temps = { 0:0, 1: 0, 15: 0}
 
     @property
     def active_nozzle_temperature(self):
@@ -665,6 +573,10 @@ class Fans:
     _cooling_fan_speed_override_time: datetime
     _heatbreak_fan_speed_percentage: int
     _heatbreak_fan_speed: int
+    _secondary_aux_fan_speed_percentage: int
+    _secondary_aux_fan_speed: int
+    _secondary_aux_fan_speed_override: int
+    _secondary_aux_fan_speed_override_time: datetime
 
     def __init__(self, client):
         self._client = client
@@ -682,6 +594,10 @@ class Fans:
         self._cooling_fan_speed_override_time = None
         self._heatbreak_fan_speed_percentage = 0
         self._heatbreak_fan_speed = 0
+        self._secondary_aux_fan_speed_percentage = 0
+        self._secondary_aux_fan_speed = 0
+        self._secondary_aux_fan_speed_override = 0
+        self._secondary_aux_fan_speed_override_time = None
 
     def print_update(self, data) -> bool:
         old_data = f"{self.__dict__}"
@@ -706,7 +622,15 @@ class Fans:
                 self._cooling_fan_speed_override_time = None
         self._heatbreak_fan_speed = data.get("heatbreak_fan_speed", self._heatbreak_fan_speed)
         self._heatbreak_fan_speed_percentage = fan_percentage(self._heatbreak_fan_speed)
-        
+        if data.get('device') and data["device"].get('airduct') and data["device"]["airduct"].get('parts') and next((item for item in data["device"]["airduct"]["parts"] if item["id"] == 160), None):
+            fan_part = next(item for item in data["device"]["airduct"]["parts"] if item["id"] == 160)
+            self._secondary_aux_fan_speed = fan_part.get("value", self._secondary_aux_fan_speed)
+            self._secondary_aux_fan_speed_percentage = fan_percentage(self._secondary_aux_fan_speed)
+        if self._secondary_aux_fan_speed_override_time is not None:
+            delta = datetime.now() - self._secondary_aux_fan_speed_override_time
+            if delta.seconds > 5:
+                self._cooling_fan_speed_override_time = None
+
         return (old_data != f"{self.__dict__}")
 
     def set_fan_speed(self, fan: FansEnum, percentage: int):
@@ -723,6 +647,9 @@ class Fans:
         elif fan == FansEnum.CHAMBER:
             self._chamber_fan_speed_override = percentage
             self._chamber_fan_speed_override_time = datetime.now()
+        elif fan == FansEnum.SECONDARY_AUXILIARY:
+            self._secondary_aux_fan_speed_override = percentage
+            self._secondary_aux_fan_speed_override_time = datetime.now()
 
         LOGGER.debug(command)
         self._client.publish(command)
@@ -747,7 +674,10 @@ class Fans:
                 return self._chamber_fan_speed_percentage
         elif fan == FansEnum.HEATBREAK:
             return self._heatbreak_fan_speed_percentage
-
+        elif fan == FansEnum.SECONDARY_AUXILIARY:
+            if self._secondary_aux_fan_speed_override_time is not None:
+                return self._chamber_fan_speed_override
+            return self._chamber_fan_speed_percentage
 
 @dataclass
 class Upgrade:
@@ -1050,15 +980,8 @@ class PrintJob:
         if old_subtask_name != self.subtask_name:
             LOGGER.debug(f"SUBTASK_NAME: {self.subtask_name}")
         self.file_type_icon = "mdi:file" if self.print_type != "cloud" else "mdi:cloud-outline"
-        old_current_layer = self.current_layer
         self.current_layer = data.get("layer_num", self.current_layer)
         self.total_layers = data.get("total_layer_num", self.total_layers)
-        
-        # Detect layer change and trigger spaghetti detection
-        if old_current_layer != self.current_layer and self.current_layer > 0:
-            LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}")
-            self._client.callback("event_layer_changed")
-        
         self.ams_mapping = data.get("ams_mapping", self.ams_mapping)
         self._skipped_objects = data.get("s_obj", self._skipped_objects)
 
@@ -1167,10 +1090,6 @@ class PrintJob:
                 self._download_timelapse()
                 timelapseDownloaded = True
             self._client.callback("event_print_finished")
-            # Handle incognito mode - delete files after print completion.
-            # Use a short delay to reduce the chance of racing with the timelapse download.
-            if self._client._incognito_mode:
-                threading.Timer(5.0, self._delete_last_print_files).start()
 
         if currently_idle and not previously_idle and previous_gcode_state != "unknown":
             if self.start_time != None:
@@ -1338,7 +1257,7 @@ class PrintJob:
             return str(cache_file_path)
                     
         except ftplib.error_perm as e:
-             if FTP_FILE_UNAVAILABLE not in str(e.args):
+             if '550' not in str(e.args): # 550 is unavailable.
                  LOGGER.debug(f"Failed to download model at '{file_path}': {e}")
         except Exception as e:
             LOGGER.debug(f"Unexpected exception at '{file_path}': {type(e)} Args: {e}")
@@ -1501,56 +1420,46 @@ class PrintJob:
             LOGGER.debug("Skipping as pruning is disabled.")
             return
 
-        try:
-            dir_path = Path(directory)
-            if not dir_path.is_dir():
-                return
-            
-            LOGGER.debug(f"Pruning files in {dir_path}")
-            
-            # Get list of files matching the provided list of extensions
-            # Use try-except to handle potential file system errors gracefully
-            matching_files = []
+        dir_path = Path(directory)
+        if not dir_path.is_dir():
+            return
+        
+        LOGGER.debug(f"{dir_path}")
+        
+        # Get list of files matching the provided list of extensions
+        matching_files = [
+            f for f in dir_path.rglob('*')            
+            if f.is_file() and f.suffix in extensions
+        ]
+        
+        # Sort files by last modification time, newest first
+        matching_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+
+        # Files to delete: those beyond the 'keep' most recent
+        old_files = matching_files[keep:]
+
+        LOGGER.debug(f"Keeping up to {keep} files. Deleting {len(old_files)} excess files.")
+        
+        for primary_file in old_files:
             try:
-                matching_files = [
-                    f for f in dir_path.rglob('*')            
-                    if f.is_file() and f.suffix in extensions
-                ]
-            except (OSError, PermissionError) as e:
-                LOGGER.warning(f"Error accessing files in {dir_path}: {e}")
-                return
-            
-            # Sort files by last modification time, newest first
-            matching_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                os.remove(primary_file )
+                LOGGER.debug(f"Deleted: {primary_file }")
+            except Exception as e:
+                LOGGER.error(f"Failed to delete {primary_file}: {e}")
+                continue
 
-            # Files to delete: those beyond the 'keep' most recent
-            old_files = matching_files[keep:]
+            # Get base name without extension
+            base_name = os.path.splitext(primary_file)[0]
 
-            LOGGER.debug(f"Keeping up to {keep} files. Deleting {len(old_files)} excess files.")
-            
-            for primary_file in old_files:
-                try:
-                    os.remove(primary_file)
-                    LOGGER.debug(f"Deleted: {primary_file}")
-                except Exception as e:
-                    LOGGER.error(f"Failed to delete {primary_file}: {e}")
-                    continue
-
-                # Get base name without extension
-                base_name = os.path.splitext(primary_file)[0]
-
-                # Delete associated files with alternate extensions
-                for ext in extra_extensions:
-                    assoc_file = base_name + ext
-                    if os.path.exists(assoc_file):
-                        try:
-                            os.remove(assoc_file)
-                            LOGGER.debug(f"Deleted associated: {assoc_file}")
-                        except Exception as e:
-                            LOGGER.error(f"Failed to delete associated {assoc_file}: {e}")
-        except Exception as e:
-            LOGGER.error(f"Unexpected error during file pruning in {directory}: {e}")
-            # Don't let pruning errors crash the integration
+            # Delete associated files with alternate extensions
+            for ext in extra_extensions:
+                assoc_file = base_name + ext
+                if os.path.exists(assoc_file):
+                    try:
+                        os.remove(assoc_file)
+                        LOGGER.debug(f"Deleted associated: {assoc_file}")
+                    except Exception as e:
+                        LOGGER.error(f"Failed to delete associated {assoc_file}: {e}")
     
     def _download_timelapse(self):
         # If we are running in connection test mode, skip updating the last print task data.
@@ -1563,309 +1472,71 @@ class PrintJob:
         thread = threading.Thread(target=self._async_download_timelapse)
         thread.start()
         
-    def _download_avi_recording(self, delete_after_download=False):
-        """Download the latest AVI recording from /ipcam folder."""
-        # If we are running in connection test mode, skip.
-        if self._client._test_mode:
-            return
-        if not self._client.ftp_enabled:
-            return
-        thread = threading.Thread(target=self._async_download_avi_recording, args=(delete_after_download,))
-        thread.start()
-        
     def _async_download_timelapse(self):
         current_thread = threading.current_thread()
         current_thread.setName(f"{self._client._device.info.device_type}-FTP-{threading.get_native_id()}")
         start_time = datetime.now()
         LOGGER.debug(f"Downloading latest timelapse by FTP")
 
-        ftp = None
-        try:
-            # Open the FTP connection with timeout protection
-            ftp = self._client.ftp_connection()
-            video_extensions = ['.mp4','.avi']
-            file_path = self._find_latest_file(ftp, ['/timelapse'], video_extensions)
-            if file_path is not None:
-                # timelapse_path is of form '/timelapse/foo.mp4'
-                local_file_path = os.path.join(self._client.cache_path, file_path.lstrip('/'))
-                directory_path = os.path.dirname(local_file_path)
-                os.makedirs(directory_path, exist_ok=True)
+        # Open the FTP connection
+        ftp = self._client.ftp_connection()
+        video_extensions = ['.mp4','.avi']
+        file_path = self._find_latest_file(ftp, ['/timelapse'], video_extensions)
+        if file_path is not None:
+            # timelapse_path is of form '/timelapse/foo.mp4'
+            local_file_path = os.path.join(self._client.cache_path, file_path.lstrip('/'))
+            directory_path = os.path.dirname(local_file_path)
+            os.makedirs(directory_path, exist_ok=True)
 
-                try:
-                    # Get the file size from FTP
-                    size = ftp.size(file_path)
-                    LOGGER.debug(f"Timelapse file exists. Size: {size} bytes.")
-                    
-                    # Check if file already exists with same size
-                    should_download = False
-                    if os.path.exists(local_file_path):
-                        local_file_size = os.path.getsize(local_file_path)
-                        if local_file_size == size:
-                            LOGGER.debug(f"Timelapse file found in cache.")
-                        else:
-                            LOGGER.debug(f"Timelapse file size differs (local: {local_file_size}, remote: {size}). Re-downloading.")
-                            should_download = True
+            try:
+                # Get the file size from FTP
+                size = ftp.size(file_path)
+                LOGGER.debug(f"Timelapse file exists. Size: {size} bytes.")
+                
+                # Check if file already exists with same size
+                should_download = False
+                if os.path.exists(local_file_path):
+                    local_file_size = os.path.getsize(local_file_path)
+                    if local_file_size == size:
+                        LOGGER.debug(f"Timelapse file found in cache.")
                     else:
-                        LOGGER.debug(f"Timelapse file doesn't exist locally. Downloading.")
+                        LOGGER.debug(f"Timelapse file size differs (local: {local_file_size}, remote: {size}). Re-downloading.")
                         should_download = True
+                else:
+                    LOGGER.debug(f"Timelapse file doesn't exist locally. Downloading.")
+                    should_download = True
+                
+                if should_download:
+                    # Download video
+                    with open(local_file_path, 'wb') as f:
+                        LOGGER.debug(f"Downloading '{file_path}'")
+                        ftp.retrbinary(f"RETR {file_path}", f.write)
+                        f.flush()
                     
-                    if should_download:
-                        # Download video
-                        with open(local_file_path, 'wb') as f:
-                            LOGGER.debug(f"Downloading '{file_path}'")
-                            ftp.retrbinary(f"RETR {file_path}", f.write)
-                            f.flush()
-                        
-                        # Download thumbnail
-                        filename = os.path.basename(file_path)
-                        filename_without_extension, _ = os.path.splitext(filename)
-                        thumbnail_filename = f"{filename_without_extension}.jpg"
-                        # Use os.path.join for FTP paths, then replace backslashes for cross-platform compatibility
-                        dirname = file_path.rsplit('/', 1)[0] if '/' in file_path else ''
-                        thumbnail_path = os.path.join(dirname, 'thumbnail', thumbnail_filename).replace('\\', '/')
-                        thumbnail_local_path = os.path.join(os.path.dirname(local_file_path), thumbnail_filename)
-                        with open(thumbnail_local_path, 'wb') as f:
-                            LOGGER.info(f"Downloading '{thumbnail_path}'")
-                            ftp.retrbinary(f"RETR {thumbnail_path}", f.write)
-                            f.flush()
-                        
-                except ftplib.error_perm as e:
-                    if FTP_FILE_UNAVAILABLE not in str(e.args):
-                        LOGGER.debug(f"Failed to download timelapse at '{file_path}': {e}")
-                except Exception as e:
-                    LOGGER.debug(f"Unexpected exception downloading timelapse at '{file_path}': {type(e)} Args: {e}")
+                    # Download thumbnail
+                    filename = os.path.basename(file_path)
+                    filename_without_extension, _ = os.path.splitext(filename)
+                    thumbnail_filename = f"{filename_without_extension}.jpg"
+                    thumbnail_path = os.path.join(os.path.dirname(file_path), 'thumbnail', thumbnail_filename)
+                    thumbnail_local_path = os.path.join(os.path.dirname(local_file_path), thumbnail_filename)
+                    with open(thumbnail_local_path, 'wb') as f:
+                        LOGGER.info(f"Downloading '{thumbnail_path}'")
+                        ftp.retrbinary(f"RETR {thumbnail_path}", f.write)
+                        f.flush()
+                    
+            except ftplib.error_perm as e:
+                if '550' not in str(e.args): # 550 is unavailable.
+                    LOGGER.debug(f"Failed to download timelapse at '{file_path}': {e}")
+            except Exception as e:
+                LOGGER.debug(f"Unexpected exception downloading timelapse at '{file_path}': {type(e)} Args: {e}")
 
-        except socket.timeout:
-            LOGGER.warning("FTP connection timed out downloading timelapse. Printer may be off or network unavailable.")
-        except ftplib.error_temp as e:
-            LOGGER.warning(f"Temporary FTP error downloading timelapse: {e}")
-        except ftplib.error_perm as e:
-            LOGGER.warning(f"FTP permission error downloading timelapse: {e}")
-        except Exception as e:
-            LOGGER.error(f"Unexpected error downloading timelapse via FTP: {type(e)} Args: {e}", exc_info=True)
-        finally:
-            # Always try to close FTP connection
-            if ftp is not None:
-                try:
-                    ftp.quit()
-                except Exception:
-                    pass  # Ignore errors when closing
+        ftp.quit()
 
         end_time = datetime.now()
 
         self.prune_timelapse_files()
 
         LOGGER.debug(f"Done downloading timelapse by FTP. Elapsed time = {(end_time-start_time).seconds}s") 
-
-    def _async_download_avi_recording(self, delete_after_download=False):
-        """Download the latest AVI recording from /ipcam folder."""
-        current_thread = threading.current_thread()
-        current_thread.setName(f"{self._client._device.info.device_type}-FTP-AVI-{threading.get_native_id()}")
-        start_time = datetime.now()
-        LOGGER.debug(f"Downloading latest AVI recording by FTP")
-
-        ftp = None
-        try:
-            # Open the FTP connection with timeout protection
-            ftp = self._client.ftp_connection()
-            avi_extensions = ['.avi']
-            file_path = self._find_latest_file(ftp, ['/ipcam'], avi_extensions)
-            if file_path is not None:
-                # file_path is of form '/ipcam/foo.avi'
-                local_file_path = os.path.join(self._client.cache_path, file_path.lstrip('/'))
-                directory_path = os.path.dirname(local_file_path)
-                os.makedirs(directory_path, exist_ok=True)
-
-                try:
-                    # Get the file size from FTP
-                    size = ftp.size(file_path)
-                    LOGGER.debug(f"AVI recording file exists. Size: {size} bytes.")
-                    
-                    # Check if file already exists with same size
-                    should_download = False
-                    if os.path.exists(local_file_path):
-                        local_file_size = os.path.getsize(local_file_path)
-                        if local_file_size == size:
-                            LOGGER.debug(f"AVI recording file found in cache.")
-                        else:
-                            LOGGER.debug(f"AVI recording file size differs (local: {local_file_size}, remote: {size}). Re-downloading.")
-                            should_download = True
-                    else:
-                        LOGGER.debug(f"AVI recording file doesn't exist locally. Downloading.")
-                        should_download = True
-                    
-                    if should_download:
-                        # Download AVI
-                        with open(local_file_path, 'wb') as f:
-                            LOGGER.info(f"Downloading '{file_path}'")
-                            ftp.retrbinary(f"RETR {file_path}", f.write)
-                            f.flush()
-                        LOGGER.info(f"Downloaded AVI recording to: {local_file_path}")
-                    
-                    # Delete from printer if requested
-                    if delete_after_download:
-                        try:
-                            LOGGER.info(f"Deleting '{file_path}' from printer")
-                            ftp.delete(file_path)
-                            LOGGER.info(f"Deleted '{file_path}' from printer")
-                        except ftplib.error_perm as e:
-                            LOGGER.warning(f"Failed to delete '{file_path}' from printer: {e}")
-                        
-                except ftplib.error_perm as e:
-                    if FTP_FILE_UNAVAILABLE not in str(e.args):
-                        LOGGER.warning(f"Failed to download AVI recording at '{file_path}': {e}")
-                except Exception as e:
-                    LOGGER.error(f"Unexpected exception downloading AVI recording at '{file_path}': {type(e)} Args: {e}")
-
-        except Exception as e:
-            LOGGER.error(f"Unexpected error downloading AVI recording via FTP: {type(e)} Args: {e}", exc_info=True)
-        finally:
-            # Always try to close FTP connection
-            if ftp is not None:
-                try:
-                    ftp.quit()
-                except Exception:
-                    pass  # Ignore errors when closing
-
-        end_time = datetime.now()
-        LOGGER.debug(f"Done downloading AVI recording by FTP. Elapsed time = {(end_time-start_time).seconds}s")
-
-    def _delete_last_print_files(self):
-        """Delete all identifiable files created since print start when incognito mode is enabled"""
-        if self._client._test_mode:
-            return
-        if not self._client.ftp_enabled:
-            return
-        
-        thread = threading.Thread(target=self._async_delete_last_print_files)
-        thread.start()
-    
-    def _async_delete_last_print_files(self):
-        current_thread = threading.current_thread()
-        current_thread.setName(f"{self._client._device.info.device_type}-FTP-DELETE-{threading.get_native_id()}")
-        start_time = datetime.now()
-        LOGGER.debug(f"Incognito mode: Deleting files created during print via FTP")
-        
-        # Calculate the deletion threshold time (10 minutes before print start)
-        deletion_threshold = None
-        if self.start_time is not None:
-            # self.start_time is UTC timezone-aware, convert to local time for FTP comparison
-            # FTP timestamps are in the printer's local time (naive datetime)
-            deletion_threshold_utc = self.start_time - timedelta(minutes=10)
-            # Convert to local time by getting the local timezone offset
-            deletion_threshold = deletion_threshold_utc.astimezone().replace(tzinfo=None)
-            LOGGER.debug(f"Incognito mode: Will delete files modified after {deletion_threshold} (local time)")
-        else:
-            LOGGER.warning("Incognito mode: Print start time is None, cannot determine which files to delete")
-            return
-        
-        try:
-            # Open the FTP connection
-            ftp = self._client.ftp_connection()
-            
-            # Define folders and file extensions to clean
-            folders_to_clean = {
-                '/cache': ['.gcode'],
-                '/image': ['.png'],
-                '/image/hms': ['.png'],
-                '/image/md5': ['.md5'],
-                '/ipcam': ['.avi'],
-                '/logger': ['.log'],
-                '/recorder': ['.bin'],
-                '/timelapse': ['.avi', '.mp4'],
-                '/timelapse/thumbnail': ['.jpg'],
-            }
-            
-            deleted_count = 0
-            
-            for folder, extensions in folders_to_clean.items():
-                try:
-                    LOGGER.debug(f"Incognito mode: Checking folder '{folder}' for files to delete")
-                    # List files in the folder
-                    file_list = []
-                    
-                    def parse_line(line: str):
-                        # Parse FTP LIST output to get filename and timestamp
-                        # Example: -rw-r--r--    1 1000     1000      1632221 Jun 17  2025 video_2025-06-17_12-12-18.mp4
-                        pattern_with_time_no_year = r'^\S+\s+\d+\s+\S+\s+\S+\s+\d+\s+(\S+\s+\d+\s+\d+:\d+)\s+(.+)$'
-                        pattern_without_time_just_year = r'^\S+\s+\d+\s+\S+\s+\S+\s+\d+\s+(\S+\s+\d+\s+\d+)\s+(.+)$'
-                        
-                        match = re.match(pattern_with_time_no_year, line)
-                        if match:
-                            timestamp_str, filename = match.groups()
-                            _, extension = os.path.splitext(filename)
-                            if extension in extensions:
-                                # Parse timestamp without year (local printer time, not UTC)
-                                timestamp = datetime.strptime(timestamp_str, '%b %d %H:%M')
-                                current_time = datetime.now()
-                                
-                                # Initially assume current year, then adjust if needed
-                                timestamp = timestamp.replace(year=current_time.year)
-                                delta = timestamp - current_time
-                                # Use 190 days (slightly more than 6 months) to safely handle year boundary cases
-                                six_months = timedelta(days=190)
-                                
-                                if delta > six_months:
-                                    timestamp = timestamp.replace(year=current_time.year - 1)
-                                elif delta < -six_months:
-                                    timestamp = timestamp.replace(year=current_time.year + 1)
-                                
-                                # Use os.path.join for path construction, then replace backslashes
-                                full_path = os.path.join(folder, filename).replace('\\', '/')
-                                file_list.append((timestamp, full_path))
-                            return
-                        
-                        match = re.match(pattern_without_time_just_year, line)
-                        if match:
-                            timestamp_str, filename = match.groups()
-                            _, extension = os.path.splitext(filename)
-                            if extension in extensions:
-                                # Parse timestamp with year (local printer time, not UTC)
-                                timestamp = datetime.strptime(timestamp_str, '%b %d %Y')
-                                # Use os.path.join for path construction, then replace backslashes
-                                full_path = os.path.join(folder, filename).replace('\\', '/')
-                                file_list.append((timestamp, full_path))
-                    
-                    # List directory contents
-                    ftp.retrlines(f'LIST {folder}', parse_line)
-                    
-                    # Delete files that are newer than the threshold
-                    for file_timestamp, file_path in file_list:
-                        if file_timestamp >= deletion_threshold:
-                            try:
-                                LOGGER.debug(f"Incognito mode: Deleting '{file_path}' (modified: {file_timestamp})")
-                                ftp.delete(file_path)
-                                deleted_count += 1
-                            except ftplib.error_perm as e:
-                                LOGGER.debug(f"Incognito mode: Failed to delete '{file_path}': {e}")
-                            except Exception as e:
-                                LOGGER.debug(f"Incognito mode: Unexpected exception deleting '{file_path}': {type(e)} Args: {e}")
-                
-                except ftplib.error_perm as e:
-                    # Folder might not exist, that's okay
-                    LOGGER.debug(f"Incognito mode: Could not access folder '{folder}': {e}")
-                except Exception as e:
-                    LOGGER.debug(f"Incognito mode: Error processing folder '{folder}': {type(e)} Args: {e}")
-            
-            ftp.quit()
-            
-            end_time = datetime.now()
-            LOGGER.info(f"Incognito mode: Deleted {deleted_count} files via FTP. Elapsed time = {(end_time-start_time).seconds}s")
-        except socket.timeout:
-            LOGGER.warning("Incognito mode: FTP connection timed out during file deletion. Printer may be off or network unavailable.")
-        except ftplib.error_temp as e:
-            LOGGER.warning(f"Incognito mode: Temporary FTP error during file deletion: {e}")
-        except ftplib.error_perm as e:
-            LOGGER.warning(f"Incognito mode: FTP permission error during file deletion: {e}")
-        except Exception as e:
-            LOGGER.error(f"Incognito mode: Unexpected error during file deletion: {type(e)} Args: {e}", exc_info=True)
-        finally:
-            # Always try to close FTP connection if it was opened
-            if 'ftp' in locals() and ftp is not None:
-                try:
-                    ftp.quit()
-                except Exception:
-                    pass  # Ignore errors when closing
 
     def _update_task_data(self):
         self._loaded_model_data = True
@@ -1921,46 +1592,26 @@ class PrintJob:
         self._ftpThread = None
 
     def _async_download_task_data_from_printer_worker(self):
-        ftp = None
-        try:
-            # Open the FTP connection with timeout protection
-            ftp = self._client.ftp_connection()
+        # Open the FTP connection
+        ftp = self._client.ftp_connection()
 
-            for i in range(1,13):
-                model_file_path = self._attempt_ftp_download(ftp)
-                if model_file_path is not None:
-                    break
+        for i in range(1,13):
+            model_file_path = self._attempt_ftp_download(ftp)
+            if model_file_path is not None:
+                break
 
-                if not self._client._device.supports_feature(Features.SUPPORTS_EARLY_FTP_DOWNLOAD):
-                    # The X1 has a weird behavior where the downloaded file doesn't exist for several seconds into the RUNNING phase and even
-                    # then it is still being downloaded in place so we might try to grab it mid-download and get a corrupt file. Try 13 times
-                    # 5 seconds apart over 60s.
-                    if i != 12:
-                        LOGGER.debug(f"Sleeping 5s for X1/H2/P2 retry")
-                        time.sleep(5)
-                        LOGGER.debug(f"Try #{i+1} for X1/H2/P2")
-                else:
-                    break
+            if not self._client._device.supports_feature(Features.SUPPORTS_EARLY_FTP_DOWNLOAD):
+                # The X1 has a weird behavior where the downloaded file doesn't exist for several seconds into the RUNNING phase and even
+                # then it is still being downloaded in place so we might try to grab it mid-download and get a corrupt file. Try 13 times
+                # 5 seconds apart over 60s.
+                if i != 12:
+                    LOGGER.debug(f"Sleeping 5s for X1/H2/P2 retry")
+                    time.sleep(5)
+                    LOGGER.debug(f"Try #{i+1} for X1/H2/P2")
+            else:
+                break
 
-        except socket.timeout:
-            LOGGER.warning("FTP connection timed out downloading task data. Printer may be off or network unavailable.")
-            model_file_path = None
-        except ftplib.error_temp as e:
-            LOGGER.warning(f"Temporary FTP error downloading task data: {e}")
-            model_file_path = None
-        except ftplib.error_perm as e:
-            LOGGER.warning(f"FTP permission error downloading task data: {e}")
-            model_file_path = None
-        except Exception as e:
-            LOGGER.error(f"Unexpected error downloading task data via FTP: {type(e)} Args: {e}", exc_info=True)
-            model_file_path = None
-        finally:
-            # Always try to close FTP connection
-            if ftp is not None:
-                try:
-                    ftp.quit()
-                except Exception:
-                    pass  # Ignore errors when closing
+        ftp.quit()
 
         if model_file_path is None:
             LOGGER.debug("No model file found.")
@@ -2283,9 +1934,6 @@ class PrintJob:
             
             return int(size) == expected_size
             
-        except socket.timeout:
-            LOGGER.warning(f"FTP file check timed out for {file_path}. Printer may be off or network unavailable.")
-            return False
         except Exception as e:
             LOGGER.debug(f"FTP file check failed for {file_path}: {e}")
             return False
@@ -2362,9 +2010,6 @@ class PrintJob:
 
             return True
 
-        except socket.timeout:
-            LOGGER.warning(f"FTP upload timed out for {local_path} to {remote_path}. Printer may be off or network unavailable.")
-            return False
         except Exception as e:
             LOGGER.debug(f"FTP upload failed for {local_path} to {remote_path}: {e}")
             return False
@@ -2411,8 +2056,8 @@ class Info:
         self.online = False
         self.new_version_state = 0
         self.mqtt_mode = "local" if self._client._local_mqtt else "bambu_cloud"
-        self.nozzle_diameters = {0: None, 1: None}
-        self.nozzle_types = {0: None, 1: None}
+        self.nozzle_diameters = {0: None, 1: None, 15: None}
+        self.nozzle_types = {0: None, 1: None, 15: None}
         self.usage_hours = client._usage_hours
         self.extruder_filament_state = False
         self.door_open = False
@@ -2762,8 +2407,8 @@ class AMSList:
 
     def __init__(self, client):
         self._client = client
-        self._nozzle_tray_index = { 0: 0, 1: 0}
-        self._nozzle_ams_index = { 0: 0, 1: 0}
+        self._nozzle_tray_index = { 0: 0, 1: 0, 15: 0}
+        self._nozzle_ams_index = { 0: 0, 1: 0, 15: 0}
         self.data = {}
 
     @property
@@ -3054,38 +2699,31 @@ class AMSTray:
     def print_update(self, data) -> bool:
         old_data = f"{self.__dict__}"
 
-        if len(data) <= 2:
-            # If the data just id + state then the tray is empty.
-            self.empty = True
-            self.idx = ""
-            self.name = "Empty"
+        self.idx = data.get('tray_info_idx', self.idx)
+        self.name = get_filament_name(self.idx, self._client.slicer_settings.custom_filaments)
+        self.type = data.get('tray_type', self.type)
+        self.sub_brands = data.get('tray_sub_brands', self.sub_brands)
+        self.color = data.get('tray_color', self.color)
+        self.nozzle_temp_min = data.get('nozzle_temp_min', self.nozzle_temp_min)
+        self.nozzle_temp_max = data.get('nozzle_temp_max', self.nozzle_temp_max)
+        self._remain = data.get('remain', self._remain)
+        self.tag_uid = data.get('tag_uid', self.tag_uid)
+        self.tray_uuid = data.get('tray_uuid', self.tray_uuid)
+        self.k = data.get('k', self.k)
+        self.tray_weight = data.get('tray_weight', self.tray_weight)
+        if self.name == "unknown":
+            # Fallback to the type if the name is unknown
+            self.name = self.type
+        self.empty = (self.name == "Empty")
+        if self.name == "Empty":
             self.type = "Empty"
             self.sub_brands = ""
-            self.color = "00000000"  # RRGGBBAA
-            self.nozzle_temp_min = 0
-            self.nozzle_temp_max = 0
             self._remain = -1
             self.tag_uid = ""
             self.tray_uuid = ""
             self.k = 0
             self.tray_weight = 0
-        else:
-            self.empty = False
-            self.idx = data.get('tray_info_idx', self.idx)
-            self.name = get_filament_name(self.idx, self._client.slicer_settings.custom_filaments)
-            self.type = data.get('tray_type', self.type)
-            self.sub_brands = data.get('tray_sub_brands', self.sub_brands)
-            self.color = data.get('tray_color', self.color)
-            self.nozzle_temp_min = data.get('nozzle_temp_min', self.nozzle_temp_min)
-            self.nozzle_temp_max = data.get('nozzle_temp_max', self.nozzle_temp_max)
-            self._remain = data.get('remain', self._remain)
-            self.tag_uid = data.get('tag_uid', self.tag_uid)
-            self.tray_uuid = data.get('tray_uuid', self.tray_uuid)
-            self.k = data.get('k', self.k)
-            self.tray_weight = data.get('tray_weight', self.tray_weight)
-            if self.name == "unknown":
-                # Fallback to the type if the name is unknown
-                self.name = self.type
+
         return (old_data != f"{self.__dict__}")
 
 
@@ -3679,17 +3317,7 @@ class SpaghettiDetector:
             LOGGER.error(f"Error in spaghetti detection analysis: {e}", exc_info=True)
             # On error, don't trigger alert and return current state
             return self._alert_triggered
-        
-    @property
-    def is_alert_active(self) -> bool:
-        """Return True if a spaghetti alert is currently active."""
-        return self._alert_triggered
     
-    @property
-    def is_initial_detection(self) -> bool:
-        """Return True if this is the initial detection (cooldown just started)."""
-        return self._alert_triggered and self._cooldown_counter == self._alert_cooldown_layers
-        
     @property
     def is_enabled(self) -> bool:
         """Return True if spaghetti detection is enabled."""
@@ -3703,8 +3331,9 @@ class SpaghettiDetector:
     
     def set_edge_density_threshold(self, value: float):
         """Set the edge density threshold (0.0 to 1.0)."""
-        self._edge_density_threshold = max(0.0, min(1.0, value))
-        LOGGER.debug(f"Spaghetti detector edge density threshold set to {self._edge_density_threshold:.2f}")
+        if 0.0 <= value <= 1.0:
+            self._edge_density_threshold = value
+            LOGGER.debug(f"Edge density threshold set to {value}")
     
     @property
     def sudden_growth_threshold(self) -> float:
@@ -3713,40 +3342,31 @@ class SpaghettiDetector:
     
     def set_sudden_growth_threshold(self, value: float):
         """Set the sudden growth threshold (0.0 to 1.0)."""
-        self._sudden_growth_threshold = max(0.0, min(1.0, value))
-        LOGGER.debug(f"Spaghetti detector sudden growth threshold set to {self._sudden_growth_threshold:.2f}")
+        if 0.0 <= value <= 1.0:
+            self._sudden_growth_threshold = value
+            LOGGER.debug(f"Sudden growth threshold set to {value}")
     
     @property
     def baseline_update_interval(self) -> int:
-        """Get the baseline update interval in layers."""
+        """Get the baseline update interval (layers)."""
         return self._baseline_update_interval
     
     def set_baseline_update_interval(self, value: int):
-        """Set the baseline update interval in layers."""
-        self._baseline_update_interval = max(1, min(20, int(value)))
-        LOGGER.debug(f"Spaghetti detector baseline update interval set to {self._baseline_update_interval} layers")
+        """Set the baseline update interval (layers)."""
+        if value > 0:
+            self._baseline_update_interval = value
+            LOGGER.debug(f"Baseline update interval set to {value} layers")
     
     @property
     def alert_cooldown_layers(self) -> int:
-        """Get the alert cooldown in layers."""
+        """Get the alert cooldown period (layers)."""
         return self._alert_cooldown_layers
     
     def set_alert_cooldown_layers(self, value: int):
-        """Set the alert cooldown in layers."""
-        self._alert_cooldown_layers = max(1, min(10, int(value)))
-        LOGGER.debug(f"Spaghetti detector alert cooldown set to {self._alert_cooldown_layers} layers")
-    
-    @property
-    def current_edge_density(self) -> float:
-        """Get the current edge density measurement (0.0 to 1.0)."""
-        return self._previous_edge_density
-    
-    @property
-    def baseline_edge_density(self) -> float:
-        """Get the baseline edge density measurement (0.0 to 1.0)."""
-        if self._baseline_edge_map is None:
-            return 0.0
-        return self._calculate_edge_density(self._baseline_edge_map)
+        """Set the alert cooldown period (layers)."""
+        if value >= 0:
+            self._alert_cooldown_layers = value
+            LOGGER.debug(f"Alert cooldown set to {value} layers")
 
 
 @dataclass

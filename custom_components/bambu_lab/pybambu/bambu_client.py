@@ -34,12 +34,6 @@ from .commands import (
 from .tests import MockMQTTClient
 from .utils import safe_json_loads
 
-# Connection retry and timeout constants
-CAMERA_STARTUP_DELAY_SECONDS = 2  # Delay camera startup to let MQTT stabilize
-MAX_SOCKET_BACKOFF_SECONDS = 5  # Maximum backoff for socket connection retries
-TIMEOUT_BACKOFF_MULTIPLIER = 2  # Multiplier for timeout backoff calculations
-MAX_TIMEOUT_BACKOFF_SECONDS = 10  # Maximum backoff for timeout retries
-
 class WatchdogThread(threading.Thread):
 
     def __init__(self, client):
@@ -138,9 +132,7 @@ class ChamberImageThread(threading.Thread):
         while connect_attempts < MAX_CONNECT_ATTEMPTS and not self._stop_event.is_set():
             connect_attempts += 1
             try:
-                # Add timeout to socket connection to prevent hanging during HA startup
-                # Reduced from 30s to 10s to avoid blocking HA initialization
-                with socket.create_connection((hostname, port), timeout=10) as sock:
+                with socket.create_connection((hostname, port)) as sock:
                     try:
                         sslSock = ctx.wrap_socket(sock, server_hostname=hostname)
                         sslSock.write(auth_data)
@@ -150,15 +142,11 @@ class ChamberImageThread(threading.Thread):
                         status = sslSock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
                         LOGGER.debug(f"SOCKET STATUS: {status}")
                         if status != 0:
-                            LOGGER.debug(f"Socket error: {status}")
-                            # Break out of the try block to trigger retry with backoff
-                            raise socket.error(f"Socket error: {status}")
+                            LOGGER.error(f"Socket error: {status}")
                     except socket.error as e:
-                        LOGGER.debug(f"Socket error during chamber image connection: {e}")
+                        LOGGER.error(f"Socket error: {e}")
                         # Sleep to allow printer to stabilize during boot when it may fail these connection attempts repeatedly.
-                        # Use exponential backoff to reduce resource contention during HA startup
-                        backoff = min(connect_attempts, MAX_SOCKET_BACKOFF_SECONDS)
-                        if self._stop_event.wait(backoff):
+                        if self._stop_event.wait(1):
                             break
                         continue
 
@@ -218,13 +206,6 @@ class ChamberImageThread(threading.Thread):
                     LOGGER.error(f"Exception. Type: {type(e)} Args: {e}")
                 if not self._stop_event.is_set():
                     time.sleep(2)  # Avoid a tight loop if this is a persistent error.
-
-            except socket.timeout:
-                LOGGER.debug("Chamber image connection timed out. Printer may be off or unreachable.")
-                if not self._stop_event.is_set():
-                    # Use exponential backoff: wait longer on timeouts to reduce resource usage
-                    backoff = min(connect_attempts * TIMEOUT_BACKOFF_MULTIPLIER, MAX_TIMEOUT_BACKOFF_SECONDS)
-                    time.sleep(backoff)
 
             except Exception as e:
                 LOGGER.error(f"Chamber Image thread exception occurred:")
@@ -374,8 +355,8 @@ class BambuClient:
         self._local_mqtt = config.get('local_mqtt', False)
         self._serial = config.get('serial', '')
         self._enable_camera = config.get('enable_camera', True) and (self.host != "")
-        # Initialize FTP/FTPS from config option, defaulting to enabled if host is available
-        self._enable_ftp = config.get('enable_ftps', True) and (self.host != "")
+        self._enable_ftp = (self.host != "")
+        self._incognito_mode = config.get('incognito_mode', False)
         if self._serial.startswith('MOCK-'):
             self._enable_ftp = False
             self._enable_camera = False
@@ -387,7 +368,6 @@ class BambuClient:
             # We always cache at least one model as we use that to avoid redownloading from ftp on startup.
             self._print_cache_count = 1
         self._timelapse_cache_count = max(-1, int(config.get('timelapse_cache_count', 0)))
-        self._incognito_mode = config.get('incognito_mode', False)
         self._disable_ssl_verify = config.get('disable_ssl_verify', False)
         self._cache_path = config.get('file_cache_path', f'/config/www/media/ha-bambulab/{self._serial}')
 
@@ -443,15 +423,6 @@ class BambuClient:
         else:
             self.stop_camera()
 
-    @property
-    def ftp_enabled(self):
-        return self._enable_ftp
-
-    @property
-    def incognito_mode(self):
-        """Get the current incognito mode state."""
-        return self._incognito_mode
-
     def set_ftps_enabled(self, enable):
         """Enable or disable FTP/FTPS functionality."""
         self._enable_ftp = enable and (self.host != "")
@@ -461,6 +432,15 @@ class BambuClient:
         """Enable or disable incognito mode."""
         self._incognito_mode = enable
         LOGGER.debug(f"Incognito mode set to: {self._incognito_mode}")
+
+    @property
+    def ftp_enabled(self):
+        return self._enable_ftp
+
+    @property
+    def incognito_mode(self):
+        """Return True if incognito mode is enabled."""
+        return self._incognito_mode
 
     @property
     def local_tls_context(self):
@@ -494,7 +474,7 @@ class BambuClient:
         self.client.reconnect_delay_set(min_delay=1, max_delay=1)
 
         # Run the blocking tls_set method in a separate thread
-        loop = asyncio.get_running_loop()
+        loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.setup_tls)
 
         if self._local_mqtt:
@@ -506,10 +486,8 @@ class BambuClient:
         self._mqtt = MqttThread(self)
         self._mqtt.start()
 
-        # Run file pruning operations asynchronously to avoid blocking HA startup
-        # These operations can be slow with many files or on network filesystems
-        loop.run_in_executor(None, self._device.print_job.prune_print_history_files)
-        loop.run_in_executor(None, self._device.print_job.prune_timelapse_files)
+        self._device.print_job.prune_print_history_files()
+        self._device.print_job.prune_timelapse_files()
 
     def subscribe_and_request_info(self):
         LOGGER.debug("Now subscribing...")
@@ -557,13 +535,8 @@ class BambuClient:
 
         self.subscribe_and_request_info()
 
-        # Delay camera startup to avoid competing with MQTT initialization
-        # This helps prevent HA from hanging during boot when printer is on
-        def delayed_camera_start():
-            time.sleep(CAMERA_STARTUP_DELAY_SECONDS)
-            self.start_camera()
-        
-        threading.Thread(target=delayed_camera_start, daemon=True).start()
+        # Start camera if enabled
+        self.start_camera()
 
     def on_disconnect(self,
                       client_: mqtt.Client,
@@ -604,16 +577,8 @@ class BambuClient:
 
             if not self._loaded_slicer_settings:
                 # Only update slicer settings once per successful connection to the printer.
-                # Run this in a separate thread to avoid blocking MQTT message processing
-                # which could cause HA to hang during startup
                 self._loaded_slicer_settings = True
-                def load_settings():
-                    try:
-                        self.slicer_settings.update()
-                    except Exception as e:
-                        LOGGER.warning(f"Failed to load slicer settings: {e}")
-                        # Don't let slicer settings failures block integration startup
-                threading.Thread(target=load_settings, daemon=True).start()
+                self.slicer_settings.update()
 
             if self._refreshed:
                 # X1 mqtt payload is inconsistent. Adjust it for consistent logging.
@@ -718,80 +683,10 @@ class BambuClient:
 
     def ftp_connection(self) -> ImplicitFTP_TLS:
         ftp = ImplicitFTP_TLS(context=self.local_tls_context)
-        # Reduced timeout from 15s to 10s to prevent blocking HA startup
-        ftp.connect(host=self._device.info.ip_address, port=990, timeout=10)
+        ftp.connect(host=self._device.info.ip_address, port=990, timeout=15)
         ftp.login(user='bblp', passwd=self._access_code)
         ftp.prot_p()
         return ftp
-
-    def check_ftps_connectivity(self) -> dict:
-        """Check FTPS connectivity and return info about latest file in active folders."""
-        if not self._enable_ftp:
-            return {
-                "connected": False,
-                "latest_file": None,
-                "latest_file_time": None,
-                "error": "FTP not enabled"
-            }
-        
-        try:
-            ftp = self.ftp_connection()
-            
-            # Define folders to check for recent activity
-            folders_to_check = ['/cache', '/timelapse', '/ipcam', '/image']
-            latest_file = None
-            latest_time = None
-            
-            for folder in folders_to_check:
-                try:
-                    lines = []
-                    ftp.retrlines(f'LIST {folder}', lines.append)
-                    
-                    for line in lines:
-                        # Parse FTP LIST format: -rw-r--r--    1 1000     1000      1632221 Jun 17  2025 filename.ext
-                        parts = line.split()
-                        if len(parts) >= 9:
-                            # Get filename (last part)
-                            filename = ' '.join(parts[8:])
-                            # Get date/time parts
-                            if ':' in parts[7]:  # Has time (current year)
-                                date_str = f"{parts[5]} {parts[6]} {datetime.now().year} {parts[7]}"
-                                try:
-                                    file_time = datetime.strptime(date_str, '%b %d %Y %H:%M')
-                                except ValueError:
-                                    continue
-                            else:  # Has year (older file)
-                                date_str = f"{parts[5]} {parts[6]} {parts[7]}"
-                                try:
-                                    file_time = datetime.strptime(date_str, '%b %d %Y')
-                                except ValueError:
-                                    continue
-                            
-                            if latest_time is None or file_time > latest_time:
-                                latest_time = file_time
-                                latest_file = f"{folder}/{filename}"
-                
-                except ftplib.error_perm:
-                    # Folder may not exist, continue
-                    continue
-            
-            ftp.quit()
-            
-            return {
-                "connected": True,
-                "latest_file": latest_file,
-                "latest_file_time": latest_time.isoformat() if latest_time else None,
-                "error": None
-            }
-            
-        except Exception as e:
-            LOGGER.debug(f"FTPS connectivity check failed: {e}")
-            return {
-                "connected": False,
-                "latest_file": None,
-                "latest_file_time": None,
-                "error": str(e)
-            }
 
     async def try_connection(self):
         """Test if we can connect to an MQTT broker."""
