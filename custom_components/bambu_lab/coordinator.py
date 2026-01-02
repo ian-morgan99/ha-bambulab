@@ -119,9 +119,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         elif event == "event_printer_mqtt_encryption_enabled":
             self._report_encryption_enabled_issue()
 
-        elif event == "event_printer_info_update":
-            self._update_external_spool_info()
-
         elif event == "event_printer_ready":
             self._printer_ready()
 
@@ -158,10 +155,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
 
         elif event == "event_print_error":
             self._update_print_error()
-        
-        elif event == "event_layer_changed":
-            # Trigger spaghetti detection on layer change
-            self._check_spaghetti_detection()
 
         # event_print_started
         # event_print_finished
@@ -260,11 +253,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
                 self._report_encryption_enabled_issue(True)
                 return False
 
-            if self.get_model().info.is_hybrid_mode_blocking:
-                LOGGER.error("Printer is in hybrid connection mode. All control actions sent to local mqtt are blocked.")
-                self._report_hybrid_mode_blocking_issue(True)
-                return False
-
         future = self._hass.data[DOMAIN]['service_call_future']
         if future is None:
             LOGGER.error("Future is None")
@@ -297,10 +285,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
                 result = self._service_call_filament_drying(data)
             case "stop_filament_drying":
                 result = self._service_call_filament_drying(data)
-            case "download_timelapse":
-                result = self._service_call_download_timelapse(data)
-            case "download_avi_recording":
-                result = self._service_call_download_avi_recording(data)
             case _:
                 LOGGER.error(f"Unknown service call: {data}")
 
@@ -523,7 +507,7 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
 
         if entity_unique_id.endswith('_external_spool'):
             ams_index = 255
-            tray_index = 254
+            tray_index = 0
         elif not self.get_model().supports_feature(Features.AMS):
             LOGGER.error(f"AMS not available")
             return False
@@ -591,15 +575,21 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         #   X1C_<PRINTERSERIAL>_AMS_<AMSSERIAL>_tray_1
         # or
         #   X1C_<PRINTERSERIAL>_ExternalSpool_external_spool
+        #   H2C_<PRINTERSERIAL>_ExternalSpool_external_spool  # Left
+        #   H2C_<PRINTERSERIAL>_ExternalSpool2_external_spool # Right
 
         temperature = int(data.get('temperature', 0))
 
         if entity_unique_id.endswith('_external_spool'):
-            ams_index, tray = 255, 0
+            ams_index = 255
+            tray = 0
             target = 254
             # search selected external spool by identifier
+            suffices = ['']
+            if len(self.get_model().external_spool) == 2:
+                suffices = ['2', '']
             for i, ext_spool in enumerate(self.get_model().external_spool):
-                vtray = self.get_virtual_tray_device(i)
+                vtray = self.get_virtual_tray_device(suffices[i])
                 if vtray['identifiers'] == ams_device.identifiers:
                     ams_index = 255 - i
                     # Unless a target temperature override is set, try and find the
@@ -681,88 +671,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
 
         self.client.publish(command)
 
-    def _service_call_download_timelapse(self, data: dict):
-        """Service call to manually download the latest timelapse video."""
-        LOGGER.debug("Triggering manual timelapse download")
-        model = self.get_model()
-        if not model or not getattr(model, "print_job", None):
-            LOGGER.debug("Timelapse download aborted: model or print_job not available")
-            return False
-        model.print_job._download_timelapse()
-        return True
-
-    def _service_call_download_avi_recording(self, data: dict):
-        """Service call to manually download the latest AVI recording."""
-        LOGGER.debug("Triggering manual AVI recording download")
-        delete_after_download = data.get("delete_after_download", False)
-        model = self.get_model()
-        if not model or not getattr(model, "print_job", None):
-            LOGGER.debug("AVI recording download aborted: model or print_job not available")
-            return False
-        model.print_job._download_avi_recording(delete_after_download)
-        return True
-
-    def _get_latest_timelapse_file(self) -> Optional[Dict[str, Any]]:
-        """Get the latest timelapse file data."""
-        # Ensure we have a valid event loop before scheduling the coroutine
-        event_loop = getattr(self, "_eventloop", None)
-        if event_loop is None or (hasattr(event_loop, 'is_closed') and event_loop.is_closed()):
-            LOGGER.debug("No valid event loop available for retrieving latest timelapse")
-            return None
-        try:
-            files = asyncio.run_coroutine_threadsafe(
-                self.get_cached_files('timelapse'),
-                event_loop
-            ).result(timeout=5)
-            
-            if files:
-                # Sort by modification time, newest first
-                files.sort(key=lambda x: x['modified'], reverse=True)
-                return files[0]
-        except Exception as e:
-            LOGGER.debug(f"Error getting latest timelapse: {e}")
-        return None
-
-    def get_latest_timelapse_url(self) -> str:
-        """Get the URL of the latest timelapse video."""
-        try:
-            latest = self._get_latest_timelapse_file()
-            if latest:
-                # latest['path'] is already of the form 'serial/timelapse/video.mp4'
-                # Build the media URL directly
-                return f"/media/ha-bambulab/{latest['path']}"
-        except Exception as e:
-            LOGGER.debug(f"Error getting latest timelapse URL: {e}")
-        return ""
-
-    def get_latest_timelapse_attributes(self) -> dict:
-        """Get attributes for the latest timelapse."""
-        try:
-            latest = self._get_latest_timelapse_file()
-            if latest:
-                return {
-                    'file_name': latest.get('filename'),
-                    'file_size': latest.get('size'),
-                    'modified': latest.get('modified'),
-                    'thumbnail': latest.get('thumbnail_path'),
-                }
-        except Exception as e:
-            LOGGER.debug(f"Error getting latest timelapse attributes: {e}")
-        return {}
-
-    def get_ftps_status(self) -> dict:
-        """Get FTPS connectivity status and latest file info."""
-        try:
-            return self.client.check_ftps_connectivity()
-        except Exception as e:
-            LOGGER.debug(f"Error getting FTPS status: {e}")
-            return {
-                "connected": False,
-                "latest_file": None,
-                "latest_file_time": None,
-                "error": str(e)
-            }
-
     async def _async_update_data(self):
         LOGGER.debug(f"_async_update_data() called")
         device = self.get_model()
@@ -823,43 +731,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             event_data["error"] = device.print_error.error['error']
             LOGGER.debug(f"EVENT: print_error: {event_data}")
         self._hass.bus.async_fire(f"{DOMAIN}_event", event_data)
-    
-    def _check_spaghetti_detection(self):
-        """Check for spaghetti/print failure on layer change."""
-        try:
-            device = self.get_model()
-            current_layer = device.print_job.current_layer
-            
-            # Get current chamber image
-            image_bytes = device.chamber_image.get_image()
-            
-            if len(image_bytes) > 0 and current_layer > 0:
-                # Analyze the image for spaghetti
-                alert_active = device.spaghetti_detector.analyze_image_on_layer_change(
-                    image_bytes, 
-                    current_layer
-                )
-                
-                # Fire device trigger event if newly detected
-                if device.spaghetti_detector.is_initial_detection:
-                    # Only fire event on initial detection
-                    dev_reg = device_registry.async_get(self._hass)
-                    hadevice = dev_reg.async_get_device(identifiers={(DOMAIN, device.info.serial)})
-                    
-                    event_data = {
-                        "device_id": hadevice.id,
-                        "name": self.config_entry.options.get('name', ''),
-                        "type": "event_spaghetti_detected",
-                        "layer": current_layer,
-                    }
-                    LOGGER.warning(f"EVENT: Spaghetti detected at layer {current_layer}")
-                    self._hass.bus.async_fire(f"{DOMAIN}_event", event_data)
-                
-                # Update data to refresh binary sensor
-                self._update_data()
-        except Exception as e:
-            LOGGER.error(f"Error checking spaghetti detection: {e}", exc_info=True)
-            # Don't let errors in spaghetti detection crash the coordinator
 
     def _update_device_info(self):
         if not self._updatedDevice:
@@ -941,19 +812,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         # And now we can reinitialize the sensors, which will trigger device creation as necessary.
         self.hass.async_create_task(self._reinitialize_sensors())
 
-    def _update_external_spool_info(self):
-        dev_reg = device_registry.async_get(self._hass)
-        hadevice = dev_reg.async_get_or_create(config_entry_id=self.config_entry.entry_id,
-                                               identifiers={(DOMAIN, f"{self.get_model().info.serial}_ExternalSpool")})
-        serial = self.config_entry.data["serial"]
-        device_type = self.config_entry.data["device_type"]
-        dev_reg.async_update_device(hadevice.id,
-                                    name=f"{device_type}_{serial}_ExternalSpool",
-                                    model="External Spool",
-                                    manufacturer=BRAND,
-                                    sw_version="",
-                                    hw_version="")
-
     def PublishDeviceTriggerEvent(self, event: str):
         dev_reg = device_registry.async_get(self._hass)
         hadevice = dev_reg.async_get_device(identifiers={(DOMAIN, self.get_model().info.serial)})
@@ -1003,13 +861,13 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             sw_version=self.get_model().ams.data[index].sw_version
         )
 
-    def get_virtual_tray_device(self, index: int):
+    def get_virtual_tray_device(self, suffix: str):
         printer_serial = self.config_entry.data["serial"]
         device_type = self.config_entry.data["device_type"]
-        device_name=f"{device_type}_{printer_serial}_ExternalSpool{'2' if index==1 else ''}"
+        device_name=f"{device_type}_{printer_serial}_ExternalSpool{suffix}"
 
         return DeviceInfo(
-            identifiers={(DOMAIN, f"{printer_serial}_ExternalSpool{'2' if index==1 else ''}")},
+            identifiers={(DOMAIN, f"{printer_serial}_ExternalSpool{suffix}")},
             via_device=(DOMAIN, printer_serial),
             name=device_name,
             model="External Spool",
@@ -1025,13 +883,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         match option:
             case Options.CAMERA:
                 default = True
-            case Options.FTPS:
-                default = (
-                    self.config_entry.data.get('host', '') != "" or 
-                    self.config_entry.options.get('host', '') != ""
-                )
-            case Options.INCOGNITO_MODE:
-                default = False
 
         return options.get(OPTION_NAME[option], default)
         
@@ -1058,12 +909,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             if option == Options.CAMERA:
                 # Camera option changed, need to poke bambu client to update its camera state:
                 self.client.set_camera_enabled(enable)
-            elif option == Options.FTPS:
-                # FTPS option changed, need to update bambu client FTPS state:
-                self.client.set_ftps_enabled(enable)
-            elif option == Options.INCOGNITO_MODE:
-                # Incognito mode changed, update bambu client incognito mode:
-                self.client.set_incognito_mode(enable)
 
     def get_option_value(self, option: Options) -> int:
         options = dict(self.config_entry.options)
@@ -1100,7 +945,7 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         if force:
             # Delete issue so we can re-create it but only ever have one in the list.
             if existing_issue is not None:
-                registry.async_delete_issue(domain=DOMAIN, issue_id=issue_id)
+                issue_registry.async_delete_issue(hass=self._hass, domain=DOMAIN, issue_id=issue_id)
         else:
             if existing_issue is not None:
                 # Issue already exists, no need to create it again

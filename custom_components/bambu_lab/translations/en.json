@@ -8,8 +8,7 @@
       "event_print_error": "Print error",
       "event_print_error_cleared": "Print error cleared",
       "event_printer_error": "HMS error",
-      "event_printer_error_cleared": "HMS error cleared",
-      "event_spaghetti_detected": "Spaghetti/print failure detected"
+      "event_printer_error_cleared": "HMS error cleared"
     }
   },
   "config": {
@@ -75,8 +74,7 @@
           "access_code": "Access Code:",
           "print_cache_count": "Number of models to cache to home assistant (-1 for unlimited):",
           "timelapse_cache_count": "Number of timelapse videos to cache to home assistant (-1 for unlimited):",
-          "usage_hours": "Current usage hours (optional):",
-          "incognito_mode": "Incognito mode (delete timelapse and model files after print completion):"
+          "usage_hours": "Current usage hours (optional):"
         },
         "sections": {
           "advanced": {
@@ -98,8 +96,7 @@
           "access_code": "Access Code:",
           "print_cache_count": "Number of models to cache to home assistant (-1 for unlimited):",
           "timelapse_cache_count": "Number of timelapse videos to cache to home assistant (-1 for unlimited):",
-          "usage_hours": "Current usage hours (optional):",
-          "incognito_mode": "Incognito mode (delete timelapse and model files after print completion):"
+          "usage_hours": "Current usage hours (optional):"
         },
         "sections": {
           "advanced": {
@@ -247,9 +244,6 @@
       },
       "extruder_filament_state": {
         "name": "Extruder filament state"
-      },
-      "spaghetti_detection": {
-        "name": "Spaghetti Detection Alert"
       }
     },
     "button": {
@@ -287,6 +281,9 @@
       },
       "chamber_fan": {
         "name": "Chamber fan"
+      },
+      "secondary_aux_fan": {
+        "name": "Secondary aux fan"
       }
     },
     "image": {
@@ -317,18 +314,6 @@
       },
       "target_nozzle_temperature": {
         "name": "Nozzle target temperature"
-      },
-      "spaghetti_edge_density_threshold": {
-        "name": "Spaghetti Detection: Edge Density Threshold"
-      },
-      "spaghetti_sudden_growth_threshold": {
-        "name": "Spaghetti Detection: Sudden Growth Threshold"
-      },
-      "spaghetti_baseline_update_interval": {
-        "name": "Spaghetti Detection: Baseline Update Interval (layers)"
-      },
-      "spaghetti_alert_cooldown_layers": {
-        "name": "Spaghetti Detection: Alert Cooldown (layers)"
       }
     },
     "select": {
@@ -468,11 +453,11 @@
           "bed_level_phase_2": "Auto bed leveling - phase 2",
           "heating_chamber": "Heating chamber",
           "heated_bedcooling": "Heated bed cooling",
-          "print_calibration_lines": "Printing calibration lines",          
+          "print_calibration_lines": "Printing calibration lines",
           "idle": "Idle"
         }
       },
-      "sdcard_status": { 
+      "sdcard_status": {
         "name": "SD card status",
         "state": {
           "missing": "Missing",
@@ -625,46 +610,6 @@
       },
       "serial": {
         "name": "Serial number"
-      },
-      "latest_timelapse": {
-        "name": "Latest timelapse"
-      },
-      "spaghetti_current_edge_density": {
-        "name": "Spaghetti Detection: Current Edge Density",
-        "state_attributes": {
-          "baseline_density": {
-            "name": "Baseline edge density"
-          },
-          "edge_density_threshold": {
-            "name": "Edge density threshold"
-          },
-          "sudden_growth_threshold": {
-            "name": "Sudden growth threshold"
-          },
-          "difference_from_baseline": {
-            "name": "Difference from baseline"
-          },
-          "alert_active": {
-            "name": "Alert active"
-          }
-        }
-      },
-      "ftps_connectivity": {
-        "name": "FTPS connectivity",
-        "state_attributes": {
-          "connected": {
-            "name": "Connected"
-          },
-          "latest_file": {
-            "name": "Latest file"
-          },
-          "latest_file_time": {
-            "name": "Latest file time"
-          },
-          "error": {
-            "name": "Error"
-          }
-        }
       },
       "humidity_index": {
         "name": "Humidity index"
@@ -905,20 +850,11 @@
       "ftp": {
         "name": "Load model data from printer"
       },
-      "ftps": {
-        "name": "Enable FTPS"
-      },
-      "incognito_mode": {
-        "name": "Incognito Mode"
-      },
       "prompt_sound": {
         "name": "Allow Prompt Sound"
       },
       "airduct_mode": {
         "name": "Cooling Mode or Heating/Filter Mode"
-      },
-      "spaghetti_detection": {
-        "name": "Spaghetti Detection"
       }
     },
     "update": {
@@ -954,7 +890,7 @@
     },
     "hybrid_mode_blocking": {
       "title": "Hybrid Connection Blocks Control",
-      "description": "{device} is cloud connected but with local mqtt connection by the integration. Only the light can be controlled by this integration. All other controls are unavailable. Switch the connection to pure cloud to enable control."
+      "description": "{device} is cloud connected but with local mqtt connection by the integration. This blocks setting temperatures and reprinting from history. Switch the connection to pure cloud to enable full control."
     }
   }
 }

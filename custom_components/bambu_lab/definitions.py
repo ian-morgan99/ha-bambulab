@@ -211,14 +211,6 @@ PRINTER_BINARY_SENSORS: tuple[BambuLabBinarySensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         is_on_fn=lambda self: self.coordinator.get_model().info.is_hybrid_mode_blocking,
     ),
-    BambuLabBinarySensorEntityDescription(
-        key="spaghetti_detection",
-        translation_key="spaghetti_detection",
-        device_class=BinarySensorDeviceClass.PROBLEM,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        is_on_fn=lambda self: self.coordinator.get_model().spaghetti_detector.is_alert_active,
-        exists_fn=lambda coordinator: coordinator.get_model().supports_feature(Features.CAMERA_IMAGE),
-    ),
 )
 
 PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
@@ -479,6 +471,8 @@ PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
         key="total_usage_hours",
         translation_key="total_usage_hours",
         icon="mdi:clock",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.HOURS,
         suggested_display_precision=0,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -654,41 +648,6 @@ PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:identifier",
         value_fn=lambda self: self.coordinator.get_model().info.serial
-    ),
-    BambuLabSensorEntityDescription(
-        key="latest_timelapse",
-        translation_key="latest_timelapse",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        icon="mdi:video",
-        value_fn=lambda self: self.coordinator.get_latest_timelapse_url(),
-        extra_attributes=lambda self: self.coordinator.get_latest_timelapse_attributes(),
-        exists_fn=lambda coordinator: coordinator.client.ftp_enabled
-    ),
-    BambuLabSensorEntityDescription(
-        key="spaghetti_current_edge_density",
-        translation_key="spaghetti_current_edge_density",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        icon="mdi:chart-line",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=PERCENTAGE,
-        suggested_display_precision=2,
-        value_fn=lambda self: round(self.coordinator.get_model().spaghetti_detector.current_edge_density * 100, 2),
-        extra_attributes=lambda self: {
-            "baseline_density": round(self.coordinator.get_model().spaghetti_detector.baseline_edge_density * 100, 2),
-            "edge_density_threshold": round(self.coordinator.get_model().spaghetti_detector.edge_density_threshold * 100, 2),
-            "sudden_growth_threshold": round(self.coordinator.get_model().spaghetti_detector.sudden_growth_threshold * 100, 2),
-            "difference_from_baseline": round((self.coordinator.get_model().spaghetti_detector.current_edge_density - self.coordinator.get_model().spaghetti_detector.baseline_edge_density) * 100, 2),
-            "alert_active": self.coordinator.get_model().spaghetti_detector.is_alert_active,
-        },
-        exists_fn=lambda coordinator: coordinator.get_model().supports_feature(Features.CAMERA_IMAGE),
-    ),
-    BambuLabSensorEntityDescription(
-        key="ftps_connectivity",
-        translation_key="ftps_connectivity",
-        icon="mdi:lan-connect",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda self: "Connected" if self.coordinator.get_ftps_status().get("connected", False) else "Disconnected",
-        extra_attributes=lambda self: self.coordinator.get_ftps_status(),
     )
 )
 
