@@ -252,7 +252,11 @@ class BambuLabSpaghettiDetectionSwitch(BambuLabSwitch):
             config_entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, config_entry)
-        self._attr_is_on = self.coordinator.get_model().spaghetti_detector.is_enabled
+        try:
+            self._attr_is_on = self.coordinator.get_model().spaghetti_detector.is_enabled
+        except (AttributeError, Exception) as e:
+            LOGGER.warning(f"Error initializing spaghetti detector switch: {e}")
+            self._attr_is_on = True
         
     @property
     def icon(self) -> str:
@@ -262,19 +266,28 @@ class BambuLabSpaghettiDetectionSwitch(BambuLabSwitch):
     @property
     def is_on(self) -> bool:
         """Return True if entity is on."""
-        return self.coordinator.get_model().spaghetti_detector.is_enabled
+        try:
+            return self.coordinator.get_model().spaghetti_detector.is_enabled
+        except (AttributeError, Exception):
+            return self._attr_is_on
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable spaghetti detection."""
-        self.coordinator.get_model().spaghetti_detector.enable()
-        self._attr_is_on = True
-        self.async_write_ha_state()
+        try:
+            self.coordinator.get_model().spaghetti_detector.enable()
+            self._attr_is_on = True
+            self.async_write_ha_state()
+        except (AttributeError, Exception) as e:
+            LOGGER.error(f"Error enabling spaghetti detection: {e}")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable spaghetti detection."""
-        self.coordinator.get_model().spaghetti_detector.disable()
-        self._attr_is_on = False
-        self.async_write_ha_state()
+        try:
+            self.coordinator.get_model().spaghetti_detector.disable()
+            self._attr_is_on = False
+            self.async_write_ha_state()
+        except (AttributeError, Exception) as e:
+            LOGGER.error(f"Error disabling spaghetti detection: {e}")
 
 
 class BambuLabFTPSSwitch(BambuLabSwitch):
