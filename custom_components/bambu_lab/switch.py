@@ -254,8 +254,11 @@ class BambuLabSpaghettiDetectionSwitch(BambuLabSwitch):
         super().__init__(coordinator, config_entry)
         try:
             self._attr_is_on = self.coordinator.get_model().spaghetti_detector.is_enabled
-        except (AttributeError, Exception) as e:
-            LOGGER.warning(f"Error initializing spaghetti detector switch: {e}")
+        except AttributeError as e:
+            LOGGER.warning(f"Spaghetti detector not available: {e}")
+            self._attr_is_on = True
+        except Exception as e:
+            LOGGER.error(f"Unexpected error initializing spaghetti detector switch: {e}", exc_info=True)
             self._attr_is_on = True
         
     @property
@@ -268,7 +271,10 @@ class BambuLabSpaghettiDetectionSwitch(BambuLabSwitch):
         """Return True if entity is on."""
         try:
             return self.coordinator.get_model().spaghetti_detector.is_enabled
-        except (AttributeError, Exception):
+        except AttributeError:
+            return self._attr_is_on
+        except Exception as e:
+            LOGGER.error(f"Unexpected error checking spaghetti detector state: {e}", exc_info=True)
             return self._attr_is_on
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -277,8 +283,10 @@ class BambuLabSpaghettiDetectionSwitch(BambuLabSwitch):
             self.coordinator.get_model().spaghetti_detector.enable()
             self._attr_is_on = True
             self.async_write_ha_state()
-        except (AttributeError, Exception) as e:
-            LOGGER.error(f"Error enabling spaghetti detection: {e}")
+        except AttributeError as e:
+            LOGGER.error(f"Spaghetti detector not available: {e}")
+        except Exception as e:
+            LOGGER.error(f"Unexpected error enabling spaghetti detection: {e}", exc_info=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable spaghetti detection."""
@@ -286,8 +294,10 @@ class BambuLabSpaghettiDetectionSwitch(BambuLabSwitch):
             self.coordinator.get_model().spaghetti_detector.disable()
             self._attr_is_on = False
             self.async_write_ha_state()
-        except (AttributeError, Exception) as e:
-            LOGGER.error(f"Error disabling spaghetti detection: {e}")
+        except AttributeError as e:
+            LOGGER.error(f"Spaghetti detector not available: {e}")
+        except Exception as e:
+            LOGGER.error(f"Unexpected error disabling spaghetti detection: {e}", exc_info=True)
 
 
 class BambuLabFTPSSwitch(BambuLabSwitch):
