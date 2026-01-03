@@ -350,91 +350,100 @@ class EnsureCacheFileAPIView(HomeAssistantView):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the Bambu Lab integration."""
-    LOGGER.debug("async_setup_entry Start")
-    coordinator = BambuDataUpdateCoordinator(hass, entry=entry)
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        LOGGER.debug("async_setup_entry Start")
+        coordinator = BambuDataUpdateCoordinator(hass, entry=entry)
+        await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
-    # Register file cache API endpoints
-    hass.http.register_view(PrintHistoryAPIView(hass))
-    hass.http.register_view(VideoAPIView(hass))
-    hass.http.register_view(FileCacheFileView(hass))
-    hass.http.register_view(EnsureCacheFileAPIView(hass))
+        # Register file cache API endpoints
+        hass.http.register_view(PrintHistoryAPIView(hass))
+        hass.http.register_view(VideoAPIView(hass))
+        hass.http.register_view(FileCacheFileView(hass))
+        hass.http.register_view(EnsureCacheFileAPIView(hass))
 
-    async def handle_service_call(call: ServiceCall):
-        LOGGER.debug(f"handle_service_call: {call.service}")
-        data = dict(call.data)
-        data['service'] = call.service
-        
-        future = asyncio.Future()
-        call.hass.data[DOMAIN]['service_call_future'] = future
-        hass.bus.fire(SERVICE_CALL_EVENT, data)
+        async def handle_service_call(call: ServiceCall):
+            LOGGER.debug(f"handle_service_call: {call.service}")
+            data = dict(call.data)
+            data['service'] = call.service
+            
+            future = asyncio.Future()
+            call.hass.data[DOMAIN]['service_call_future'] = future
+            hass.bus.fire(SERVICE_CALL_EVENT, data)
 
-        # Wait for the result from the second instance
-        try:
-            result = await asyncio.wait_for(future, timeout=15)
-            if (call.service == 'extrude_retract' or
-                call.service == 'get_filament_data'):
-                # Only report result for service calls that return a result to avoid confusion.
-                if isinstance(result, (list, dict, tuple)):
-                    LOGGER.debug("Service call result: %s with length %d", type(result).__name__, len(result))
-                else:
-                    LOGGER.debug("Service call result: %s", result)
-            else:
-                LOGGER.debug("Service call complete.")
-            return result
-        except asyncio.TimeoutError:
-            LOGGER.error("Service call timed out")
-            return None
-        finally:
-            # Clean up the future safely
+            # Wait for the result from the second instance
             try:
-                if 'service_call_future' in call.hass.data[DOMAIN]:
-                    del call.hass.data[DOMAIN]['service_call_future']
-            except (KeyError, TypeError):
-                # Integration may have been reloaded, ignore cleanup errors
-                pass
+                result = await asyncio.wait_for(future, timeout=15)
+                if (call.service == 'extrude_retract' or
+                    call.service == 'get_filament_data'):
+                    # Only report result for service calls that return a result to avoid confusion.
+                    if isinstance(result, (list, dict, tuple)):
+                        LOGGER.debug("Service call result: %s with length %d", type(result).__name__, len(result))
+                    else:
+                        LOGGER.debug("Service call result: %s", result)
+                else:
+                    LOGGER.debug("Service call complete.")
+                return result
+            except asyncio.TimeoutError:
+                LOGGER.error("Service call timed out")
+                return None
+            finally:
+                # Clean up the future safely
+                try:
+                    if 'service_call_future' in call.hass.data[DOMAIN]:
+                        del call.hass.data[DOMAIN]['service_call_future']
+                except (KeyError, TypeError):
+                    # Integration may have been reloaded, ignore cleanup errors
+                    pass
 
-    # Register the services with Home Assistant
-    services = {
-        "send_command": SupportsResponse.NONE,
-        "print_project_file": SupportsResponse.NONE,
-        "skip_objects": SupportsResponse.NONE,
-        "move_axis": SupportsResponse.NONE,
-        "unload_filament": SupportsResponse.NONE,
-        "load_filament": SupportsResponse.NONE,
-        "extrude_retract": SupportsResponse.ONLY,
-        "set_filament": SupportsResponse.NONE,
-        "get_filament_data": SupportsResponse.ONLY,
-        "read_rfid": SupportsResponse.NONE,
-        "start_filament_drying": SupportsResponse.NONE,
-        "stop_filament_drying": SupportsResponse.NONE,
-    }
-    for command in services:
-        hass.services.async_register(
-            DOMAIN,
-            command,
-            handle_service_call,
-            supports_response=services[command]
+        # Register the services with Home Assistant
+        services = {
+            "send_command": SupportsResponse.NONE,
+            "print_project_file": SupportsResponse.NONE,
+            "skip_objects": SupportsResponse.NONE,
+            "move_axis": SupportsResponse.NONE,
+            "unload_filament": SupportsResponse.NONE,
+            "load_filament": SupportsResponse.NONE,
+            "extrude_retract": SupportsResponse.ONLY,
+            "set_filament": SupportsResponse.NONE,
+            "get_filament_data": SupportsResponse.ONLY,
+            "read_rfid": SupportsResponse.NONE,
+            "start_filament_drying": SupportsResponse.NONE,
+            "stop_filament_drying": SupportsResponse.NONE,
+        }
+        for command in services:
+            hass.services.async_register(
+                DOMAIN,
+                command,
+                handle_service_call,
+                supports_response=services[command]
+            )
+
+        # Set up all platforms for this device/entry.
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+        # Reload entry when its updated.
+        #entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+
+        # Now that we've finished initialization fully, start the MQTT connection so that any necessary
+        # sensor reinitialization happens entirely after the initial setup.
+        await coordinator.start_mqtt()
+
+        cards = BambuLabCardRegistration(hass)
+        await cards.async_register()
+
+        LOGGER.debug("async_setup_entry Complete")
+
+        return True
+    except Exception as e:
+        LOGGER.error(
+            "Failed to set up Bambu Lab integration for device %s: %s",
+            entry.data.get("serial", "unknown"),
+            str(e),
+            exc_info=True
         )
-
-    # Set up all platforms for this device/entry.
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Reload entry when its updated.
-    #entry.async_on_unload(entry.add_update_listener(async_reload_entry))
-
-    # Now that we've finished initialization fully, start the MQTT connection so that any necessary
-    # sensor reinitialization happens entirely after the initial setup.
-    await coordinator.start_mqtt()
-
-    cards = BambuLabCardRegistration(hass)
-    await cards.async_register()
-
-    LOGGER.debug("async_setup_entry Complete")
-
-    return True
+        return False
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload the Bambu Lab integration."""
