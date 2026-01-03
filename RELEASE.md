@@ -61,6 +61,23 @@ Once a release is published with the zip file attached, HACS will be able to ins
 
 Check the [publish workflow runs](../../actions/workflows/publish.yml) to see if there were any errors. The workflow should run automatically when a release is published.
 
+If the workflow didn't run or failed, you can manually trigger it:
+
+1. Go to [Actions > Publish](../../actions/workflows/publish.yml)
+2. Click "Run workflow"
+3. Enter the release tag (e.g., `v1.0.0.2`)
+4. Click "Run workflow"
+
+Alternatively, you can build and upload the zip manually:
+
+```bash
+# Build the zip file
+./scripts/build_release_zip.sh 1.0.0.2
+
+# Upload to the release
+gh release upload v1.0.0.2 custom_components/bambu_lab/bambu_lab.zip
+```
+
 ### HACS cannot download the integration
 
 Ensure that:
