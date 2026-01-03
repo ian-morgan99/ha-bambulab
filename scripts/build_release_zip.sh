@@ -8,22 +8,30 @@ set -e
 # Get the script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+MANIFEST_FILE="$REPO_ROOT/custom_components/bambu_lab/manifest.json"
+BACKUP_FILE="/tmp/manifest.json.bak"
 
 # Get version from argument or use current version from manifest
 if [ -n "$1" ]; then
     VERSION="$1"
 else
-    VERSION=$(grep -oP '"version":\s*"\K[^"]+' "$REPO_ROOT/custom_components/bambu_lab/manifest.json")
+    VERSION=$(grep -oP '"version":\s*"\K[^"]+' "$MANIFEST_FILE")
 fi
 
 echo "Building release zip for version $VERSION"
 
-# Update manifest version
-sed -i 's/"version": "[^"]*"/"version": "'"$VERSION"'"/' "$REPO_ROOT/custom_components/bambu_lab/manifest.json"
+# Create backup of manifest in /tmp
+cp "$MANIFEST_FILE" "$BACKUP_FILE"
 
-# Create zip file
+# Update manifest version
+sed -i 's/"version": "[^"]*"/"version": "'"$VERSION"'"/' "$MANIFEST_FILE"
+
+# Create zip file (matching the GitHub Actions workflow - no exclusions)
 cd "$REPO_ROOT/custom_components/bambu_lab"
-zip -r bambu_lab.zip . -x "*.pyc" -x "__pycache__/*" -x "*.git*"
+zip -r bambu_lab.zip .
+
+# Restore original manifest
+mv "$BACKUP_FILE" "$MANIFEST_FILE"
 
 echo "✓ Created bambu_lab.zip"
 echo "  Location: $REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"
