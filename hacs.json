@@ -1,5 +1,7 @@
 {
   "name": "Bambu Lab",
   "render_readme": true,
+  "zip_release": true,
+  "filename": "bambu_lab.zip",
   "homeassistant": "2025.1.1"
 }
