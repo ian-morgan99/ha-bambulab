@@ -13,6 +13,7 @@ from homeassistant.core import (
     ServiceCall,
     SupportsResponse,
 )
+from homeassistant.exceptions import ConfigEntryNotReady, ConfigEntryAuthFailed
 from homeassistant.helpers import entity_platform
 from homeassistant.components.http import HomeAssistantView
 from aiohttp import web
@@ -350,8 +351,12 @@ class EnsureCacheFileAPIView(HomeAssistantView):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the Bambu Lab integration."""
+    LOGGER.debug("async_setup_entry Start")
+    
+    coordinator = None
+    platforms_setup = False
+    
     try:
-        LOGGER.debug("async_setup_entry Start")
         coordinator = BambuDataUpdateCoordinator(hass, entry=entry)
         await coordinator.async_config_entry_first_refresh()
 
@@ -422,6 +427,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Set up all platforms for this device/entry.
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        platforms_setup = True
 
         # Reload entry when its updated.
         #entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -436,6 +442,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         LOGGER.debug("async_setup_entry Complete")
 
         return True
+        
+    except ConfigEntryNotReady:
+        # This is a temporary failure - re-raise to let HA retry
+        LOGGER.warning(
+            "Setup for Bambu Lab device %s is not ready, will retry",
+            entry.data.get("serial", "unknown")
+        )
+        await _async_cleanup_on_failure(hass, entry, coordinator, platforms_setup)
+        raise
+        
+    except ConfigEntryAuthFailed:
+        # This is an authentication failure - re-raise to let HA handle it
+        LOGGER.error(
+            "Authentication failed for Bambu Lab device %s",
+            entry.data.get("serial", "unknown")
+        )
+        await _async_cleanup_on_failure(hass, entry, coordinator, platforms_setup)
+        raise
+        
     except Exception as e:
         LOGGER.error(
             "Failed to set up Bambu Lab integration for device %s: %s",
@@ -443,7 +468,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             str(e),
             exc_info=True
         )
+        await _async_cleanup_on_failure(hass, entry, coordinator, platforms_setup)
         return False
+
+
+async def _async_cleanup_on_failure(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: BambuDataUpdateCoordinator | None,
+    platforms_setup: bool
+) -> None:
+    """Clean up resources on setup failure."""
+    try:
+        # Unload platforms if they were set up
+        if platforms_setup:
+            LOGGER.debug("Cleaning up platforms after setup failure")
+            await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        
+        # Shutdown coordinator if it was created
+        if coordinator is not None:
+            LOGGER.debug("Shutting down coordinator after setup failure")
+            coordinator.shutdown()
+        
+        # Remove from hass.data if it was added
+        if DOMAIN in hass.data and entry.entry_id in hass.data[DOMAIN]:
+            LOGGER.debug("Removing entry from hass.data after setup failure")
+            del hass.data[DOMAIN][entry.entry_id]
+            
+    except Exception as cleanup_error:
+        LOGGER.error(
+            "Error during cleanup after setup failure: %s",
+            str(cleanup_error),
+            exc_info=True
+        )
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload the Bambu Lab integration."""
