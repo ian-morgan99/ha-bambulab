@@ -18,7 +18,9 @@ https://github.com/ian-morgan99/ha-bambulab/releases/download/v1.0.0.4/bambu_lab
 
 ## Root Cause
 
-This is a **known bug in HACS versions 2.0.2 and 2.0.3** where HACS incorrectly constructs the download URL by inserting `/tags/` before the version tag. GitHub doesn't recognize this URL format, resulting in 404 errors.
+This is a **known bug in HACS** where HACS incorrectly constructs the download URL by inserting `/tags/` before the version tag. GitHub doesn't recognize this URL format, resulting in 404 errors.
+
+The bug has been reported in multiple HACS versions including 2.0.2, 2.0.3, and has been confirmed to still occur in 2.0.5 and potentially later versions.
 
 - **GitHub Issue**: [hacs/integration#4331](https://github.com/hacs/integration/issues/4331)
 - **Related Issues**: [#4346](https://github.com/hacs/integration/issues/4346), [#4385](https://github.com/hacs/integration/issues/4385)
@@ -32,8 +34,8 @@ The bug is in HACS itself, not in your repository configuration. Your `hacs.json
 Since we can't fix the HACS bug ourselves (that requires HACS maintainers to release a patch), the permanent fix is to **provide clear documentation** so users know:
 
 1. **How to identify the problem** (URL contains `/tags/`)
-2. **How to fix it** (update HACS, or use manual workarounds)
-3. **Which HACS versions are affected** (2.0.2 and 2.0.3)
+2. **How to fix it** (try updating HACS, or use manual workarounds)
+3. **Which HACS versions are affected** (multiple versions including 2.0.2, 2.0.3, 2.0.5+)
 
 ## What Was Implemented
 
@@ -76,19 +78,20 @@ Added comments explaining:
 
 ## How Users Will Fix It
 
-### If They Have HACS 2.0.2 or 2.0.3:
+### If They Have HACS 2.0.2, 2.0.3, 2.0.5 or later:
 
-**Option 1: Update HACS (Recommended)**
+**Option 1: Try Updating HACS**
 ```
 Settings > Updates > HACS > Update
 ```
+Note: This may not always resolve the issue, as the bug has been reported in multiple versions.
 
 **Option 2: Manual HACS Update** (if auto-update fails)
 ```bash
 wget -O - https://get.hacs.xyz | bash
 ```
 
-**Option 3: Manual Integration Install** (if they can't update HACS)
+**Option 3: Manual Integration Install** (recommended workaround)
 1. Download release from GitHub
 2. Extract and copy to custom_components
 3. Restart Home Assistant

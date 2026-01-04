@@ -21,8 +21,8 @@ If the error shows a URL **without** `/tags/` in the path, the release zip file 
 **Solution:**  
 The repository owner needs to upload the zip file. See [HACS_INSTALLATION_FIX.md](HACS_INSTALLATION_FIX.md) for instructions.
 
-#### B. HACS Bug (versions 2.0.2 and 2.0.3)
-If the error shows a URL **with** `/tags/` in the path (e.g., `.../releases/download/tags/v1.0.0.4/...`), this is a known bug in HACS versions 2.0.2 and 2.0.3.
+#### B. HACS Bug (multiple versions affected)
+If the error shows a URL **with** `/tags/` in the path (e.g., `.../releases/download/tags/v1.0.0.4/...`), this is a known bug in HACS that affects multiple versions including 2.0.2, 2.0.3, and has been reported in 2.0.5 and later versions.
 
 **The Bug:**  
 HACS incorrectly constructs the download URL by inserting `/tags/` before the version tag:
@@ -31,12 +31,14 @@ HACS incorrectly constructs the download URL by inserting `/tags/` before the ve
 
 GitHub doesn't recognize URLs with `/tags/` in that position, resulting in 404 errors.
 
-**Solution - Update HACS:**
+**Solution - Try Updating HACS:**
 1. Check your HACS version in Home Assistant: `Settings` > `Integrations` > `HACS`
-2. If you're on version 2.0.2 or 2.0.3, update to a newer version:
+2. Try updating to the latest version:
    - Go to `Settings` > `Updates`
    - Look for HACS update
-   - Click "Update" 
+   - Click "Update"
+   
+Note: This issue may still occur in newer HACS versions. If updating doesn't resolve the problem, use the manual workarounds below. 
 
 **Solution - Manual Update if Auto-Update Fails:**
 
@@ -105,9 +107,12 @@ New releases are published but don't appear as available updates in HACS.
 |-------------|---------|-------|
 | 2.0.0 | ✅ Working | Stable |
 | 2.0.1 | ✅ Working | Stable |
-| 2.0.2 | ⚠️ Has Bug | `/tags/` URL bug - update to newer version |
-| 2.0.3 | ⚠️ Has Bug | `/tags/` URL bug - update to newer version |
-| 2.0.4+ | ✅ Working | Bug fixed in later versions |
+| 2.0.2 | ⚠️ Has Bug | `/tags/` URL bug - try updating or use manual workaround |
+| 2.0.3 | ⚠️ Has Bug | `/tags/` URL bug - try updating or use manual workaround |
+| 2.0.4 | ⚠️ May Have Bug | Some users report issues resolved, others still affected |
+| 2.0.5+ | ⚠️ May Have Bug | Bug may still occur - use manual workaround if needed |
+
+**Note:** The `/tags/` URL bug has been reported across multiple HACS versions. While some users report the issue is resolved after updating, others continue to experience it even in newer versions. If you encounter this issue, use the manual installation workaround below.
 
 ### References
 
