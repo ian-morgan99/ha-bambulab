@@ -95,7 +95,7 @@ wget -O - https://get.hacs.xyz | bash
 
 ### If Missing Release Files:
 
-Follow the existing documentation in `docs/HACS_INSTALLATION_FIX.md` to upload missing zip files to releases.
+Follow the existing documentation in [HACS_INSTALLATION_FIX.md](HACS_INSTALLATION_FIX.md) to upload missing zip files to releases.
 
 ## Next Steps for You
 

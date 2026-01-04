@@ -19,7 +19,7 @@ Failed to download https://github.com/ian-morgan99/ha-bambulab/releases/download
 If the error shows a URL **without** `/tags/` in the path, the release zip file is missing from that release.
 
 **Solution:**  
-The repository owner needs to upload the zip file. See [HACS_INSTALLATION_FIX.md](./HACS_INSTALLATION_FIX.md) for instructions.
+The repository owner needs to upload the zip file. See [HACS_INSTALLATION_FIX.md](HACS_INSTALLATION_FIX.md) for instructions.
 
 #### B. HACS Bug (versions 2.0.2 and 2.0.3)
 If the error shows a URL **with** `/tags/` in the path (e.g., `.../releases/download/tags/v1.0.0.4/...`), this is a known bug in HACS versions 2.0.2 and 2.0.3.
@@ -107,7 +107,7 @@ New releases are published but don't appear as available updates in HACS.
 | 2.0.1 | ✅ Working | Stable |
 | 2.0.2 | ⚠️ Has Bug | `/tags/` URL bug - update to newer version |
 | 2.0.3 | ⚠️ Has Bug | `/tags/` URL bug - update to newer version |
-| 2.0.4+ | ✅ Working | Bug fixed (verify on GitHub) |
+| 2.0.4+ | ✅ Working | Bug fixed in later versions |
 
 ### References
 
@@ -122,8 +122,7 @@ If you continue to experience issues:
 
 1. **Check the HACS logs**: `Settings` > `System` > `Logs`, search for "hacs"
 2. **Check Home Assistant logs**: Look for any error messages related to custom components
-3. **Join the Discord**: https://discord.gg/rsUHAW3DKz
-4. **Open an issue**: https://github.com/ian-morgan99/ha-bambulab/issues
+3. **Open an issue**: https://github.com/ian-morgan99/ha-bambulab/issues (Note: Discord invites may expire - check the repository for current community links)
 
 When reporting issues, please include:
 - Your HACS version
