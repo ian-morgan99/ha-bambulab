@@ -34,3 +34,12 @@ If you feel this integration was valuable and want to support it in other ways, 
 
 For more information on setting up and configuring ha-bambulab, [please read our full documentation](https://docs.page/greghesp/ha-bambulab/installation)
 
+### Troubleshooting HACS Installation
+
+If you encounter issues installing or updating via HACS, please see our [HACS Troubleshooting Guide](docs/TROUBLESHOOTING_HACS.md).
+
+**Common issues:**
+- **404 errors**: May be caused by missing release files or a bug in HACS versions 2.0.2-2.0.3
+- **URL contains `/tags/`**: This is a known HACS bug - update HACS to a newer version
+- See the [troubleshooting guide](docs/TROUBLESHOOTING_HACS.md) for detailed solutions
+

@@ -13,6 +13,9 @@ jobs:
     steps:
       - uses: "actions/checkout@v6"
       - name: HACS validation
+        # Note: This validates the repository structure, not end-user installation
+        # User installation issues (e.g., /tags/ bug in HACS 2.0.2-2.0.3) don't affect this validation
+        # See docs/TROUBLESHOOTING_HACS.md for user-facing installation issues
         uses: "hacs/action@main"
         with:
           category: "integration"
