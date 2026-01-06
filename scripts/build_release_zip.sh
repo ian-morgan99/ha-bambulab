@@ -36,5 +36,37 @@ mv "$BACKUP_FILE" "$MANIFEST_FILE"
 echo "✓ Created bambu_lab.zip"
 echo "  Location: $REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"
 echo ""
-echo "To upload to a release, use:"
-echo "  gh release upload v$VERSION $REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"
+
+# Check if we should publish the release
+if [ "$PUBLISH" = "true" ]; then
+    echo "Creating GitHub release v$VERSION..."
+    
+    # Create git tag if it doesn't exist
+    if ! git rev-parse "v$VERSION" >/dev/null 2>&1; then
+        git tag -a "v$VERSION" -m "Release version $VERSION"
+        git push origin "v$VERSION"
+        echo "✓ Created and pushed tag v$VERSION"
+    else
+        echo "✓ Tag v$VERSION already exists"
+    fi
+    
+    # Create or update the release
+    if gh release view "v$VERSION" >/dev/null 2>&1; then
+        echo "✓ Release v$VERSION already exists, uploading zip..."
+        gh release upload "v$VERSION" "$REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip" --clobber
+    else
+        echo "✓ Creating new release v$VERSION..."
+        gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --notes "Release version $VERSION" \
+            "$REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"
+    fi
+    
+    echo "✓ Published release v$VERSION"
+else
+    echo "To upload to a release, use:"
+    echo "  gh release upload v$VERSION $REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"
+    echo ""
+    echo "Or run with PUBLISH=true to automatically create and publish the release:"
+    echo "  PUBLISH=true ./scripts/build_release_zip.sh $VERSION"
+fi
