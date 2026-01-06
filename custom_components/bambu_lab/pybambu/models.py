@@ -2227,8 +2227,18 @@ class PrintJob:
         
         Args:
             video_index: Which video to use (0=latest, 1=2nd latest, etc.)
-            frame_offset: Seconds from end of video to extract frame
+            frame_offset: Seconds from end of video to extract frame (must be >= 1)
         """
+        # Validate frame_offset to prevent FFmpeg issues
+        if frame_offset < 1:
+            LOGGER.error(f"Invalid frame_offset: {frame_offset}. Must be >= 1")
+            return {
+                "success": False,
+                "message": f"Invalid frame offset: {frame_offset}. Must be at least 1 second.",
+                "video_path": None,
+                "image_data": None
+            }
+        
         ftp = None
         temp_video_path = None
         try:

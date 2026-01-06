@@ -73,7 +73,7 @@ FTPS_TEST_NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
         native_step=1,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda self: self.coordinator.get_model().print_job.ftps_test_video_index,
-        set_value_fn=lambda self, value: setattr(self.coordinator.get_model().print_job, 'ftps_test_video_index', value),
+        set_value_fn=lambda self, value: setattr(self.coordinator.get_model().print_job, 'ftps_test_video_index', int(value)),
     ),
     BambuLabNumberEntityDescription(
         key="ftps_test_frame_offset",
@@ -85,7 +85,7 @@ FTPS_TEST_NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
         native_step=1,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda self: self.coordinator.get_model().print_job.ftps_test_frame_offset,
-        set_value_fn=lambda self, value: setattr(self.coordinator.get_model().print_job, 'ftps_test_frame_offset', value),
+        set_value_fn=lambda self, value: setattr(self.coordinator.get_model().print_job, 'ftps_test_frame_offset', int(value)),
     ),
     BambuLabNumberEntityDescription(
         key="ftps_test_image_index",
@@ -97,7 +97,7 @@ FTPS_TEST_NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
         native_step=1,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda self: self.coordinator.get_model().print_job.ftps_test_image_index,
-        set_value_fn=lambda self, value: setattr(self.coordinator.get_model().print_job, 'ftps_test_image_index', value),
+        set_value_fn=lambda self, value: setattr(self.coordinator.get_model().print_job, 'ftps_test_image_index', int(value)),
     ),
 )
 
