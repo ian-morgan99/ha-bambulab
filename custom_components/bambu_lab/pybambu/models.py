@@ -2020,6 +2020,332 @@ class PrintJob:
                 except Exception:
                     pass
 
+    async def async_test_ftps_connection(self) -> dict:
+        """Test FTPS connection and list root directory."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._sync_test_ftps_connection)
+
+    def _sync_test_ftps_connection(self) -> dict:
+        """Synchronous FTPS test to run in executor."""
+        ftp = None
+        try:
+            ftp = self._client.ftp_connection()
+            LOGGER.debug("FTPS connection successful")
+            
+            # List root directory
+            file_list = []
+            ftp.retrlines('LIST /', lambda line: file_list.append(line))
+            
+            return {
+                "success": True,
+                "message": "FTPS connection successful",
+                "files": file_list
+            }
+        except Exception as e:
+            LOGGER.error(f"FTPS connection test failed: {e}")
+            return {
+                "success": False,
+                "message": f"FTPS connection failed: {str(e)}",
+                "files": []
+            }
+        finally:
+            if ftp:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass
+
+    async def async_get_last_image(self) -> dict:
+        """Find and return the most recent image file (jpg, jpeg, png)."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._sync_get_last_image)
+
+    def _sync_get_last_image(self) -> dict:
+        """Synchronous method to find the most recent image via FTP."""
+        ftp = None
+        try:
+            ftp = self._client.ftp_connection()
+            LOGGER.debug("Connected to FTP for image search")
+            
+            # Search paths to look for images
+            search_paths = ['/timelapse', '/cache', '/']
+            image_extensions = ['.jpg', '.jpeg', '.png']
+            
+            all_images = []
+            
+            def parse_image_line(path: str, line: str):
+                """Parse FTP LIST output line for image files."""
+                # Pattern for files with time (within last 6 months)
+                pattern_with_time = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+:\d+)\s+(.+)$'
+                # Pattern for files with year (older than 6 months)
+                pattern_with_year = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+)\s+(.+)$'
+                
+                match = re.match(pattern_with_time, line)
+                if match:
+                    size, timestamp_str, filename = match.groups()
+                    _, extension = os.path.splitext(filename.lower())
+                    if extension in image_extensions:
+                        try:
+                            timestamp = datetime.strptime(timestamp_str, '%b %d %H:%M')
+                            # Assign current year
+                            utc_time_now = datetime.now(tz=timezone.utc)
+                            timestamp = timestamp.replace(year=utc_time_now.year, tzinfo=timezone.utc)
+                            
+                            # Handle year rollover
+                            delta = (utc_time_now - timestamp).total_seconds()
+                            six_months = 180 * 24 * 60 * 60
+                            if delta < -six_months:
+                                timestamp = timestamp.replace(year=utc_time_now.year + 1)
+                            
+                            full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
+                            return timestamp, full_path, int(size)
+                        except Exception as e:
+                            LOGGER.debug(f"Error parsing image line: {e}")
+                    return None
+                
+                match = re.match(pattern_with_year, line)
+                if match:
+                    size, timestamp_str, filename = match.groups()
+                    _, extension = os.path.splitext(filename.lower())
+                    if extension in image_extensions:
+                        try:
+                            timestamp = datetime.strptime(timestamp_str, '%b %d %Y')
+                            timestamp = timestamp.replace(tzinfo=timezone.utc)
+                            full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
+                            return timestamp, full_path, int(size)
+                        except Exception as e:
+                            LOGGER.debug(f"Error parsing image line: {e}")
+                    return None
+                
+                return None
+            
+            # Scan each search path
+            for path in search_paths:
+                try:
+                    LOGGER.debug(f"Searching for images in {path}")
+                    ftp.retrlines(f"LIST {path}", 
+                                lambda line: all_images.append(img) if (img := parse_image_line(path, line)) is not None else None)
+                except Exception as e:
+                    LOGGER.debug(f"Error listing {path}: {e}")
+                    continue
+            
+            if not all_images:
+                return {
+                    "success": False,
+                    "message": "No image files found",
+                    "image_path": None,
+                    "image_data": None
+                }
+            
+            # Sort by timestamp and get the most recent
+            all_images.sort(key=lambda x: x[0], reverse=True)
+            latest_timestamp, latest_path, latest_size = all_images[0]
+            
+            LOGGER.debug(f"Found latest image: {latest_path} from {latest_timestamp}")
+            
+            # Download the image
+            image_data = io.BytesIO()
+            ftp.retrbinary(f'RETR {latest_path}', image_data.write)
+            image_data.seek(0)
+            
+            return {
+                "success": True,
+                "message": f"Found latest image: {os.path.basename(latest_path)}",
+                "image_path": latest_path,
+                "image_data": image_data.getvalue(),
+                "timestamp": latest_timestamp.isoformat()
+            }
+            
+        except Exception as e:
+            LOGGER.error(f"Error getting last image: {e}")
+            return {
+                "success": False,
+                "message": f"Error: {str(e)}",
+                "image_path": None,
+                "image_data": None
+            }
+        finally:
+            if ftp:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass
+
+    async def async_get_last_video_frame(self) -> dict:
+        """Find the latest video file and extract its last frame."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._sync_get_last_video_frame)
+
+    def _sync_get_last_video_frame(self) -> dict:
+        """Synchronous method to find and extract last frame from latest video."""
+        ftp = None
+        temp_video_path = None
+        try:
+            ftp = self._client.ftp_connection()
+            LOGGER.debug("Connected to FTP for video search")
+            
+            # Search paths for videos
+            search_paths = ['/timelapse', '/cache', '/']
+            video_extensions = ['.avi', '.mpg', '.mpeg', '.mp4']
+            
+            all_videos = []
+            
+            def parse_video_line(path: str, line: str):
+                """Parse FTP LIST output line for video files."""
+                pattern_with_time = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+:\d+)\s+(.+)$'
+                pattern_with_year = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+)\s+(.+)$'
+                
+                match = re.match(pattern_with_time, line)
+                if match:
+                    size, timestamp_str, filename = match.groups()
+                    _, extension = os.path.splitext(filename.lower())
+                    if extension in video_extensions:
+                        try:
+                            timestamp = datetime.strptime(timestamp_str, '%b %d %H:%M')
+                            utc_time_now = datetime.now(tz=timezone.utc)
+                            timestamp = timestamp.replace(year=utc_time_now.year, tzinfo=timezone.utc)
+                            
+                            delta = (utc_time_now - timestamp).total_seconds()
+                            six_months = 180 * 24 * 60 * 60
+                            if delta < -six_months:
+                                timestamp = timestamp.replace(year=utc_time_now.year + 1)
+                            
+                            full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
+                            return timestamp, full_path, int(size)
+                        except Exception as e:
+                            LOGGER.debug(f"Error parsing video line: {e}")
+                    return None
+                
+                match = re.match(pattern_with_year, line)
+                if match:
+                    size, timestamp_str, filename = match.groups()
+                    _, extension = os.path.splitext(filename.lower())
+                    if extension in video_extensions:
+                        try:
+                            timestamp = datetime.strptime(timestamp_str, '%b %d %Y')
+                            timestamp = timestamp.replace(tzinfo=timezone.utc)
+                            full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
+                            return timestamp, full_path, int(size)
+                        except Exception as e:
+                            LOGGER.debug(f"Error parsing video line: {e}")
+                    return None
+                
+                return None
+            
+            # Scan each search path
+            for path in search_paths:
+                try:
+                    LOGGER.debug(f"Searching for videos in {path}")
+                    ftp.retrlines(f"LIST {path}", 
+                                lambda line: all_videos.append(vid) if (vid := parse_video_line(path, line)) is not None else None)
+                except Exception as e:
+                    LOGGER.debug(f"Error listing {path}: {e}")
+                    continue
+            
+            if not all_videos:
+                return {
+                    "success": False,
+                    "message": "No video files found",
+                    "video_path": None,
+                    "image_data": None
+                }
+            
+            # Sort by timestamp and get the most recent
+            all_videos.sort(key=lambda x: x[0], reverse=True)
+            latest_timestamp, latest_path, latest_size = all_videos[0]
+            
+            LOGGER.debug(f"Found latest video: {latest_path} from {latest_timestamp}")
+            
+            # Download the video to a temporary location
+            import tempfile
+            temp_video_path = tempfile.mktemp(suffix=os.path.splitext(latest_path)[1])
+            
+            with open(temp_video_path, 'wb') as f:
+                ftp.retrbinary(f'RETR {latest_path}', f.write)
+            
+            LOGGER.debug(f"Downloaded video to {temp_video_path}")
+            
+            # Close FTP connection before video processing
+            if ftp:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass
+                ftp = None
+            
+            # Extract the last frame using ffmpeg
+            import subprocess
+            output_image = tempfile.mktemp(suffix='.jpg')
+            
+            # Use ffmpeg to extract the last frame
+            # sseof seeks from the end, -vframes 1 extracts 1 frame
+            cmd = [
+                'ffmpeg',
+                '-sseof', '-1',  # Seek to 1 second from end
+                '-i', temp_video_path,
+                '-vframes', '1',  # Extract 1 frame
+                '-q:v', '2',  # High quality
+                '-y',  # Overwrite output
+                output_image
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0 or not os.path.exists(output_image):
+                LOGGER.error(f"FFmpeg failed: {result.stderr}")
+                return {
+                    "success": False,
+                    "message": f"Failed to extract frame from video",
+                    "video_path": latest_path,
+                    "image_data": None
+                }
+            
+            # Read the extracted frame
+            with open(output_image, 'rb') as f:
+                frame_data = f.read()
+            
+            # Clean up temporary files
+            try:
+                os.remove(output_image)
+            except Exception:
+                pass
+            
+            return {
+                "success": True,
+                "message": f"Extracted last frame from: {os.path.basename(latest_path)}",
+                "video_path": latest_path,
+                "image_data": frame_data,
+                "timestamp": latest_timestamp.isoformat()
+            }
+            
+        except subprocess.TimeoutExpired:
+            LOGGER.error("FFmpeg timed out")
+            return {
+                "success": False,
+                "message": "Video processing timed out",
+                "video_path": None,
+                "image_data": None
+            }
+        except Exception as e:
+            LOGGER.error(f"Error getting last video frame: {e}")
+            return {
+                "success": False,
+                "message": f"Error: {str(e)}",
+                "video_path": None,
+                "image_data": None
+            }
+        finally:
+            if ftp:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass
+            if temp_video_path and os.path.exists(temp_video_path):
+                try:
+                    os.remove(temp_video_path)
+                except Exception:
+                    pass
+
 @dataclass
 class Info:
     """Return all device related content"""

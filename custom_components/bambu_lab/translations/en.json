@@ -271,6 +271,15 @@
       },
       "buzzer_beeping": {
         "name": "Buzzer - Beeping"
+      },
+      "test_ftps": {
+        "name": "Test FTPS"
+      },
+      "get_last_image": {
+        "name": "Get Last Image"
+      },
+      "get_last_frame": {
+        "name": "Get Last Frame"
       }
     },
     "fan": {

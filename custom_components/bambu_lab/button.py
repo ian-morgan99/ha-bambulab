@@ -61,6 +61,27 @@ BUZZER_BEEPING_BUTTON_DESCRIPTION = ButtonEntityDescription(
     entity_category=EntityCategory.CONFIG,
 )
 
+TEST_FTPS_BUTTON_DESCRIPTION = ButtonEntityDescription(
+    key="test_ftps",
+    icon="mdi:file-check",
+    translation_key="test_ftps",
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+GET_LAST_IMAGE_BUTTON_DESCRIPTION = ButtonEntityDescription(
+    key="get_last_image",
+    icon="mdi:image",
+    translation_key="get_last_image",
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+GET_LAST_FRAME_BUTTON_DESCRIPTION = ButtonEntityDescription(
+    key="get_last_frame",
+    icon="mdi:video-image",
+    translation_key="get_last_frame",
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
 
 async def async_setup_entry(
         hass: HomeAssistant,
@@ -80,7 +101,10 @@ async def async_setup_entry(
             BambuLabPauseButton(coordinator, entry),
             BambuLabResumeButton(coordinator, entry),
             BambuLabStopButton(coordinator, entry),
-            BambuLabRefreshButton(coordinator, entry)
+            BambuLabRefreshButton(coordinator, entry),
+            BambuLabTestFTPSButton(coordinator, entry),
+            BambuLabGetLastImageButton(coordinator, entry),
+            BambuLabGetLastFrameButton(coordinator, entry)
         ]
 
         if coordinator.get_model().supports_feature(Features.FIRE_ALARM_BUZZER):
@@ -198,3 +222,104 @@ class BambuLabBuzzerBeepingButton(BambuLabButton):
     async def async_press(self) -> None:
         """ Pause the Print on button press"""
         self.coordinator.client.publish(BUZZER_SET_BEEPING)
+
+class BambuLabTestFTPSButton(BambuLabButton):
+    """BambuLab Test FTPS Button"""
+
+    entity_description = TEST_FTPS_BUTTON_DESCRIPTION
+
+    async def async_press(self) -> None:
+        """Test FTPS connection and list root directory."""
+        result = await self.coordinator.data.print_job.async_test_ftps_connection()
+        
+        if result["success"]:
+            file_list = "\n".join(result["files"][:20])  # Limit to first 20 files
+            if len(result["files"]) > 20:
+                file_list += f"\n... and {len(result['files']) - 20} more files"
+            
+            message = f"**FTPS Connection Successful**\n\nRoot Directory Listing:\n```\n{file_list}\n```"
+        else:
+            message = f"**FTPS Connection Failed**\n\n{result['message']}"
+        
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "FTPS Test Result",
+                "message": message,
+                "notification_id": f"bambu_ftps_test_{self.coordinator.data.info.serial}"
+            }
+        )
+
+class BambuLabGetLastImageButton(BambuLabButton):
+    """BambuLab Get Last Image Button"""
+
+    entity_description = GET_LAST_IMAGE_BUTTON_DESCRIPTION
+
+    async def async_press(self) -> None:
+        """Find and display the most recent image file."""
+        result = await self.coordinator.data.print_job.async_get_last_image()
+        
+        if result["success"] and result["image_data"]:
+            # Save the image temporarily to serve it
+            import tempfile
+            import base64
+            
+            # Convert image data to base64 for display in notification
+            image_base64 = base64.b64encode(result["image_data"]).decode('utf-8')
+            
+            message = f"""**Latest Image Found**
+
+Path: `{result['image_path']}`
+Timestamp: {result.get('timestamp', 'Unknown')}
+
+![Image](data:image/jpeg;base64,{image_base64})
+"""
+        else:
+            message = f"**No Image Found**\n\n{result['message']}"
+        
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "Last Image Result",
+                "message": message,
+                "notification_id": f"bambu_last_image_{self.coordinator.data.info.serial}"
+            }
+        )
+
+class BambuLabGetLastFrameButton(BambuLabButton):
+    """BambuLab Get Last Frame Button"""
+
+    entity_description = GET_LAST_FRAME_BUTTON_DESCRIPTION
+
+    async def async_press(self) -> None:
+        """Extract and display the last frame from the latest video."""
+        result = await self.coordinator.data.print_job.async_get_last_video_frame()
+        
+        if result["success"] and result["image_data"]:
+            # Convert image data to base64 for display in notification
+            import base64
+            
+            image_base64 = base64.b64encode(result["image_data"]).decode('utf-8')
+            
+            message = f"""**Last Video Frame Extracted**
+
+Video: `{result['video_path']}`
+Timestamp: {result.get('timestamp', 'Unknown')}
+
+![Frame](data:image/jpeg;base64,{image_base64})
+"""
+        else:
+            message = f"**Frame Extraction Failed**\n\n{result['message']}"
+        
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "Last Video Frame",
+                "message": message,
+                "notification_id": f"bambu_last_frame_{self.coordinator.data.info.serial}"
+            }
+        )
+
