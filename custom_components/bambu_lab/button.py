@@ -18,6 +18,9 @@ from homeassistant.components.button import (
 
 from .coordinator import BambuDataUpdateCoordinator
 
+# Maximum number of directory entries to display in FTPS test notification
+MAX_DISPLAYED_FILES = 20
+
 PAUSE_BUTTON_DESCRIPTION = ButtonEntityDescription(
     key="pause",
     icon="mdi:pause",
@@ -236,9 +239,9 @@ class BambuLabTestFTPSButton(BambuLabButton):
         result = await self.coordinator.data.print_job.async_test_ftps_connection()
         
         if result["success"]:
-            file_list = "\n".join(result["files"][:20])  # Limit to first 20 files
-            if len(result["files"]) > 20:
-                file_list += f"\n... and {len(result['files']) - 20} more files"
+            file_list = "\n".join(result["files"][:MAX_DISPLAYED_FILES])
+            if len(result["files"]) > MAX_DISPLAYED_FILES:
+                file_list += f"\n... and {len(result['files']) - MAX_DISPLAYED_FILES} more files"
             
             message = f"**FTPS Connection Successful**\n\nRoot Directory Listing:\n```\n{file_list}\n```"
         else:

@@ -2084,8 +2084,10 @@ class PrintJob:
                     timestamp = timestamp.replace(year=utc_time_now.year, tzinfo=timezone.utc)
                     
                     # Handle year rollover
-                    # If timestamp is more than 6 months in the future, it's from previous year
-                    # If timestamp is more than 6 months in the past, it's from next year
+                    # If timestamp is more than 6 months in the future, it's likely from the previous year
+                    # (e.g., now is Jan 2024, file from Dec shows as Dec 2024, should be Dec 2023)
+                    # If timestamp is more than 6 months in the past, it could be from next year
+                    # (e.g., now is Dec 2024, file from Jan shows as Jan 2024, might be Jan 2025)
                     delta = (timestamp - utc_time_now).total_seconds()
                     if delta > SIX_MONTHS_SECONDS:
                         timestamp = timestamp.replace(year=utc_time_now.year - 1)
