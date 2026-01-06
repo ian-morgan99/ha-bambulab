@@ -261,8 +261,7 @@ class BambuLabGetLastImageButton(BambuLabButton):
         result = await self.coordinator.data.print_job.async_get_last_image()
         
         if result["success"] and result["image_data"]:
-            # Save the image temporarily to serve it
-            import tempfile
+            # Convert image data to base64 for display in notification
             import base64
             
             # Convert image data to base64 for display in notification
