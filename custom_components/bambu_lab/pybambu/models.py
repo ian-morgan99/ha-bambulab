@@ -2229,6 +2229,16 @@ class PrintJob:
             video_index: Which video to use (0=latest, 1=2nd latest, etc.)
             frame_offset: Seconds from end of video to extract frame (must be >= 1)
         """
+        # Validate video_index
+        if video_index < 0:
+            LOGGER.error(f"Invalid video_index: {video_index}. Must be non-negative")
+            return {
+                "success": False,
+                "message": f"Invalid video index: {video_index}. Must be 0 or greater.",
+                "video_path": None,
+                "image_data": None
+            }
+        
         # Validate frame_offset minimum value
         if frame_offset < 1:
             LOGGER.error(f"Invalid frame_offset: {frame_offset}. Must be at least 1 second")
@@ -2331,8 +2341,9 @@ class PrintJob:
             
             if result.returncode != 0 or not os.path.exists(output_image):
                 error_msg = result.stderr
+                error_msg_lower = error_msg.lower() if error_msg is not None else ""
                 # Check if the error is due to seeking past the beginning of the video
-                if "Invalid argument" in error_msg or "start time" in error_msg.lower():
+                if "invalid argument" in error_msg_lower or "start time" in error_msg_lower:
                     LOGGER.error(f"Video may be too short for frame_offset of {frame_offset} seconds")
                     return {
                         "success": False,

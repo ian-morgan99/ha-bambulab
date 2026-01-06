@@ -55,8 +55,8 @@ The new number entities allow users to configure which image/video to retrieve a
 - Shows the video path, timestamp, index, and frame offset information
 
 **Configuration**: 
-- Use the `number.<printer_name>_ftps_test_video_index` entity to select which video to use (0 or higher, depending on available videos)
-- Use the `number.<printer_name>_ftps_test_frame_offset` entity to set how many seconds from the end to extract the frame (1 or higher)
+- Use the `number.<printer_name>_ftps_test_video_index` entity to select which video to use (0-100)
+- Use the `number.<printer_name>_ftps_test_frame_offset` entity to set how many seconds from the end to extract the frame (1-3600)
 
 **Use case**: Verify that video files are accessible and that frame extraction works. This is crucial for debugging black frame issues or testing different parts of videos.
 
@@ -68,11 +68,11 @@ The new number entities allow users to configure which image/video to retrieve a
 
 **Description**: Selects which video to use when pressing the "Get Last Frame" button.
 
-**Range**: 0 or higher (0 = most recent video, 1 = 2nd most recent, etc.)
+**Range**: 0-100 (0 = most recent video, 1 = 2nd most recent, etc.)
 
 **Default**: 0 (latest video)
 
-**Note**: The actual maximum depends on how many video files are available on the printer. If you request an index that doesn't exist, you'll get an appropriate error message.
+**Note**: The UI allows values up to 100 to provide flexibility. If you request an index that doesn't exist, you'll get an appropriate error message.
 
 ### 2. FTPS Test Frame Offset
 
@@ -80,11 +80,11 @@ The new number entities allow users to configure which image/video to retrieve a
 
 **Description**: Sets how many seconds from the end of the video to extract a frame.
 
-**Range**: 1 second or higher
+**Range**: 1-3600 seconds (up to 1 hour)
 
 **Default**: 1 second from end
 
-**Note**: The actual maximum depends on the video duration. If you request an offset longer than the video, you'll get an appropriate error message.
+**Note**: The UI allows values up to 3600 seconds (1 hour). If you request an offset longer than the video duration, you'll get an appropriate error message.
 
 **Use case**: If the last second of a video is black, increase this value to extract a frame from earlier in the video.
 
@@ -94,11 +94,11 @@ The new number entities allow users to configure which image/video to retrieve a
 
 **Description**: Selects which image to retrieve when pressing the "Get Last Image" button.
 
-**Range**: 0 or higher (0 = most recent image, 1 = 2nd most recent, etc.)
+**Range**: 0-100 (0 = most recent image, 1 = 2nd most recent, etc.)
 
 **Default**: 0 (latest image)
 
-**Note**: The actual maximum depends on how many image files are available on the printer. If you request an index that doesn't exist, you'll get an appropriate error message.
+**Note**: The UI allows values up to 100 to provide flexibility. If you request an index that doesn't exist, you'll get an appropriate error message.
 
 ## Technical Details
 
