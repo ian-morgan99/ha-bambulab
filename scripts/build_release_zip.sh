@@ -41,11 +41,26 @@ echo ""
 if [ "$PUBLISH" = "true" ]; then
     echo "Creating GitHub release v$VERSION..."
     
+    # Check if working directory is clean
+    if ! git diff-index --quiet HEAD --; then
+        echo "⚠ Warning: Working directory has uncommitted changes"
+        echo "Please commit or stash changes before publishing"
+        exit 1
+    fi
+    
     # Create git tag if it doesn't exist
     if ! git rev-parse "v$VERSION" >/dev/null 2>&1; then
-        git tag -a "v$VERSION" -m "Release version $VERSION"
-        git push origin "v$VERSION"
-        echo "✓ Created and pushed tag v$VERSION"
+        if git tag -a "v$VERSION" -m "Release version $VERSION"; then
+            if git push origin "v$VERSION"; then
+                echo "✓ Created and pushed tag v$VERSION"
+            else
+                echo "✗ Failed to push tag v$VERSION"
+                exit 1
+            fi
+        else
+            echo "✗ Failed to create tag v$VERSION"
+            exit 1
+        fi
     else
         echo "✓ Tag v$VERSION already exists"
     fi
@@ -53,13 +68,19 @@ if [ "$PUBLISH" = "true" ]; then
     # Create or update the release
     if gh release view "v$VERSION" >/dev/null 2>&1; then
         echo "✓ Release v$VERSION already exists, uploading zip..."
-        gh release upload "v$VERSION" "$REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip" --clobber
+        if ! gh release upload "v$VERSION" "$REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip" --clobber; then
+            echo "✗ Failed to upload zip to release"
+            exit 1
+        fi
     else
         echo "✓ Creating new release v$VERSION..."
-        gh release create "v$VERSION" \
+        if ! gh release create "v$VERSION" \
             --title "v$VERSION" \
             --notes "Release version $VERSION" \
-            "$REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"
+            "$REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"; then
+            echo "✗ Failed to create release"
+            exit 1
+        fi
     fi
     
     echo "✓ Published release v$VERSION"
