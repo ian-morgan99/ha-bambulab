@@ -2229,12 +2229,12 @@ class PrintJob:
             video_index: Which video to use (0=latest, 1=2nd latest, etc.)
             frame_offset: Seconds from end of video to extract frame (must be >= 1)
         """
-        # Validate frame_offset to prevent FFmpeg issues
-        if frame_offset < 1 or frame_offset > 60:
-            LOGGER.error(f"Invalid frame_offset: {frame_offset}. Must be between 1 and 60 seconds")
+        # Validate frame_offset minimum value
+        if frame_offset < 1:
+            LOGGER.error(f"Invalid frame_offset: {frame_offset}. Must be at least 1 second")
             return {
                 "success": False,
-                "message": f"Invalid frame offset: {frame_offset}. Must be between 1 and 60 seconds.",
+                "message": f"Invalid frame offset: {frame_offset}. Must be at least 1 second.",
                 "video_path": None,
                 "image_data": None
             }
@@ -2330,10 +2330,20 @@ class PrintJob:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode != 0 or not os.path.exists(output_image):
-                LOGGER.error(f"FFmpeg failed: {result.stderr}")
+                error_msg = result.stderr
+                # Check if the error is due to seeking past the beginning of the video
+                if "Invalid argument" in error_msg or "start time" in error_msg.lower():
+                    LOGGER.error(f"Video may be too short for frame_offset of {frame_offset} seconds")
+                    return {
+                        "success": False,
+                        "message": f"Failed to extract frame: video may be too short for offset of {frame_offset} seconds from end. Try a smaller offset value.",
+                        "video_path": latest_path,
+                        "image_data": None
+                    }
+                LOGGER.error(f"FFmpeg failed: {error_msg}")
                 return {
                     "success": False,
-                    "message": f"Failed to extract frame from video. FFmpeg error: {result.stderr[:200]}",
+                    "message": f"Failed to extract frame from video. FFmpeg error: {error_msg[:200]}",
                     "video_path": latest_path,
                     "image_data": None
                 }
@@ -2343,7 +2353,7 @@ class PrintJob:
                 LOGGER.error("FFmpeg produced an empty file")
                 return {
                     "success": False,
-                    "message": "Failed to extract frame: output file is empty",
+                    "message": "Failed to extract frame: output file is empty. Video may be too short for the requested offset.",
                     "video_path": latest_path,
                     "image_data": None
                 }
