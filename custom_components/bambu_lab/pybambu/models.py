@@ -5,6 +5,8 @@ import json
 import math
 import os
 import re
+import subprocess
+import tempfile
 import threading
 import shutil
 import time
@@ -19,6 +21,10 @@ import xml.etree.ElementTree as ElementTree
 from PIL import Image, ImageFilter
 import asyncio
 import io
+
+# Constants for file timestamp parsing
+SIX_MONTHS_SECONDS = 180 * 24 * 60 * 60
+FFMPEG_SEEK_SECONDS_FROM_END = 1
 
 from .utils import (
     search,
@@ -2055,6 +2061,55 @@ class PrintJob:
                 except Exception:
                     pass
 
+    def _parse_ftp_file_line(self, path: str, line: str, file_extensions: list) -> tuple:
+        """
+        Parse FTP LIST output line for files with specific extensions.
+        
+        Returns: (timestamp, full_path, size) or None if not a matching file
+        """
+        # Pattern for files with time (within last 6 months)
+        pattern_with_time = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+:\d+)\s+(.+)$'
+        # Pattern for files with year (older than 6 months)
+        pattern_with_year = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+)\s+(.+)$'
+        
+        match = re.match(pattern_with_time, line)
+        if match:
+            size, timestamp_str, filename = match.groups()
+            _, extension = os.path.splitext(filename.lower())
+            if extension in file_extensions:
+                try:
+                    timestamp = datetime.strptime(timestamp_str, '%b %d %H:%M')
+                    # Assign current year
+                    utc_time_now = datetime.now(tz=timezone.utc)
+                    timestamp = timestamp.replace(year=utc_time_now.year, tzinfo=timezone.utc)
+                    
+                    # Handle year rollover
+                    delta = (utc_time_now - timestamp).total_seconds()
+                    if delta < -SIX_MONTHS_SECONDS:
+                        timestamp = timestamp.replace(year=utc_time_now.year + 1)
+                    
+                    full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
+                    return timestamp, full_path, int(size)
+                except Exception as e:
+                    LOGGER.debug(f"Error parsing FTP line: {e}")
+            return None
+        
+        match = re.match(pattern_with_year, line)
+        if match:
+            size, timestamp_str, filename = match.groups()
+            _, extension = os.path.splitext(filename.lower())
+            if extension in file_extensions:
+                try:
+                    timestamp = datetime.strptime(timestamp_str, '%b %d %Y')
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                    full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
+                    return timestamp, full_path, int(size)
+                except Exception as e:
+                    LOGGER.debug(f"Error parsing FTP line: {e}")
+            return None
+        
+        return None
+
     async def async_get_last_image(self) -> dict:
         """Find and return the most recent image file (jpg, jpeg, png)."""
         loop = asyncio.get_event_loop()
@@ -2073,58 +2128,17 @@ class PrintJob:
             
             all_images = []
             
-            def parse_image_line(path: str, line: str):
-                """Parse FTP LIST output line for image files."""
-                # Pattern for files with time (within last 6 months)
-                pattern_with_time = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+:\d+)\s+(.+)$'
-                # Pattern for files with year (older than 6 months)
-                pattern_with_year = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+)\s+(.+)$'
-                
-                match = re.match(pattern_with_time, line)
-                if match:
-                    size, timestamp_str, filename = match.groups()
-                    _, extension = os.path.splitext(filename.lower())
-                    if extension in image_extensions:
-                        try:
-                            timestamp = datetime.strptime(timestamp_str, '%b %d %H:%M')
-                            # Assign current year
-                            utc_time_now = datetime.now(tz=timezone.utc)
-                            timestamp = timestamp.replace(year=utc_time_now.year, tzinfo=timezone.utc)
-                            
-                            # Handle year rollover
-                            delta = (utc_time_now - timestamp).total_seconds()
-                            six_months = 180 * 24 * 60 * 60
-                            if delta < -six_months:
-                                timestamp = timestamp.replace(year=utc_time_now.year + 1)
-                            
-                            full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
-                            return timestamp, full_path, int(size)
-                        except Exception as e:
-                            LOGGER.debug(f"Error parsing image line: {e}")
-                    return None
-                
-                match = re.match(pattern_with_year, line)
-                if match:
-                    size, timestamp_str, filename = match.groups()
-                    _, extension = os.path.splitext(filename.lower())
-                    if extension in image_extensions:
-                        try:
-                            timestamp = datetime.strptime(timestamp_str, '%b %d %Y')
-                            timestamp = timestamp.replace(tzinfo=timezone.utc)
-                            full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
-                            return timestamp, full_path, int(size)
-                        except Exception as e:
-                            LOGGER.debug(f"Error parsing image line: {e}")
-                    return None
-                
-                return None
+            def parse_line(line: str, current_path: str) -> None:
+                """Parse a single FTP line and add to results if it matches."""
+                result = self._parse_ftp_file_line(current_path, line, image_extensions)
+                if result is not None:
+                    all_images.append(result)
             
             # Scan each search path
             for path in search_paths:
                 try:
                     LOGGER.debug(f"Searching for images in {path}")
-                    ftp.retrlines(f"LIST {path}", 
-                                lambda line: all_images.append(img) if (img := parse_image_line(path, line)) is not None else None)
+                    ftp.retrlines(f"LIST {path}", lambda line: parse_line(line, path))
                 except Exception as e:
                     LOGGER.debug(f"Error listing {path}: {e}")
                     continue
@@ -2190,54 +2204,17 @@ class PrintJob:
             
             all_videos = []
             
-            def parse_video_line(path: str, line: str):
-                """Parse FTP LIST output line for video files."""
-                pattern_with_time = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+:\d+)\s+(.+)$'
-                pattern_with_year = r'^[\-ld][\w\-]{9}\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\w+\s+\d+\s+\d+)\s+(.+)$'
-                
-                match = re.match(pattern_with_time, line)
-                if match:
-                    size, timestamp_str, filename = match.groups()
-                    _, extension = os.path.splitext(filename.lower())
-                    if extension in video_extensions:
-                        try:
-                            timestamp = datetime.strptime(timestamp_str, '%b %d %H:%M')
-                            utc_time_now = datetime.now(tz=timezone.utc)
-                            timestamp = timestamp.replace(year=utc_time_now.year, tzinfo=timezone.utc)
-                            
-                            delta = (utc_time_now - timestamp).total_seconds()
-                            six_months = 180 * 24 * 60 * 60
-                            if delta < -six_months:
-                                timestamp = timestamp.replace(year=utc_time_now.year + 1)
-                            
-                            full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
-                            return timestamp, full_path, int(size)
-                        except Exception as e:
-                            LOGGER.debug(f"Error parsing video line: {e}")
-                    return None
-                
-                match = re.match(pattern_with_year, line)
-                if match:
-                    size, timestamp_str, filename = match.groups()
-                    _, extension = os.path.splitext(filename.lower())
-                    if extension in video_extensions:
-                        try:
-                            timestamp = datetime.strptime(timestamp_str, '%b %d %Y')
-                            timestamp = timestamp.replace(tzinfo=timezone.utc)
-                            full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
-                            return timestamp, full_path, int(size)
-                        except Exception as e:
-                            LOGGER.debug(f"Error parsing video line: {e}")
-                    return None
-                
-                return None
+            def parse_line(line: str, current_path: str) -> None:
+                """Parse a single FTP line and add to results if it matches."""
+                result = self._parse_ftp_file_line(current_path, line, video_extensions)
+                if result is not None:
+                    all_videos.append(result)
             
             # Scan each search path
             for path in search_paths:
                 try:
                     LOGGER.debug(f"Searching for videos in {path}")
-                    ftp.retrlines(f"LIST {path}", 
-                                lambda line: all_videos.append(vid) if (vid := parse_video_line(path, line)) is not None else None)
+                    ftp.retrlines(f"LIST {path}", lambda line: parse_line(line, path))
                 except Exception as e:
                     LOGGER.debug(f"Error listing {path}: {e}")
                     continue
@@ -2257,7 +2234,6 @@ class PrintJob:
             LOGGER.debug(f"Found latest video: {latest_path} from {latest_timestamp}")
             
             # Download the video to a temporary location
-            import tempfile
             temp_video_path = tempfile.mktemp(suffix=os.path.splitext(latest_path)[1])
             
             with open(temp_video_path, 'wb') as f:
@@ -2274,14 +2250,13 @@ class PrintJob:
                 ftp = None
             
             # Extract the last frame using ffmpeg
-            import subprocess
             output_image = tempfile.mktemp(suffix='.jpg')
             
             # Use ffmpeg to extract the last frame
             # sseof seeks from the end, -vframes 1 extracts 1 frame
             cmd = [
                 'ffmpeg',
-                '-sseof', '-1',  # Seek to 1 second from end
+                '-sseof', f'-{FFMPEG_SEEK_SECONDS_FROM_END}',  # Seek to 1 second from end
                 '-i', temp_video_path,
                 '-vframes', '1',  # Extract 1 frame
                 '-q:v', '2',  # High quality

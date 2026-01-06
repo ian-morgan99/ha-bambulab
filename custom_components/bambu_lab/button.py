@@ -1,3 +1,5 @@
+import base64
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.core import HomeAssistant
@@ -262,9 +264,6 @@ class BambuLabGetLastImageButton(BambuLabButton):
         
         if result["success"] and result["image_data"]:
             # Convert image data to base64 for display in notification
-            import base64
-            
-            # Convert image data to base64 for display in notification
             image_base64 = base64.b64encode(result["image_data"]).decode('utf-8')
             
             message = f"""**Latest Image Found**
@@ -298,8 +297,6 @@ class BambuLabGetLastFrameButton(BambuLabButton):
         
         if result["success"] and result["image_data"]:
             # Convert image data to base64 for display in notification
-            import base64
-            
             image_base64 = base64.b64encode(result["image_data"]).decode('utf-8')
             
             message = f"""**Last Video Frame Extracted**
