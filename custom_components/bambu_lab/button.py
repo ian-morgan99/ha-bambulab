@@ -1,4 +1,5 @@
 import base64
+import os
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -266,12 +267,16 @@ class BambuLabGetLastImageButton(BambuLabButton):
             # Convert image data to base64 for display in notification
             image_base64 = base64.b64encode(result["image_data"]).decode('utf-8')
             
+            # Determine MIME type from file extension
+            _, ext = os.path.splitext(result['image_path'].lower())
+            mime_type = "image/jpeg" if ext in ['.jpg', '.jpeg'] else "image/png"
+            
             message = f"""**Latest Image Found**
 
 Path: `{result['image_path']}`
 Timestamp: {result.get('timestamp', 'Unknown')}
 
-![Image](data:image/jpeg;base64,{image_base64})
+![Image](data:{mime_type};base64,{image_base64})
 """
         else:
             message = f"**No Image Found**\n\n{result['message']}"

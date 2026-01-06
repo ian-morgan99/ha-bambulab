@@ -2084,8 +2084,12 @@ class PrintJob:
                     timestamp = timestamp.replace(year=utc_time_now.year, tzinfo=timezone.utc)
                     
                     # Handle year rollover
-                    delta = (utc_time_now - timestamp).total_seconds()
-                    if delta < -SIX_MONTHS_SECONDS:
+                    # If timestamp is more than 6 months in the future, it's from previous year
+                    # If timestamp is more than 6 months in the past, it's from next year
+                    delta = (timestamp - utc_time_now).total_seconds()
+                    if delta > SIX_MONTHS_SECONDS:
+                        timestamp = timestamp.replace(year=utc_time_now.year - 1)
+                    elif delta < -SIX_MONTHS_SECONDS:
                         timestamp = timestamp.replace(year=utc_time_now.year + 1)
                     
                     full_path = f"{path}/{filename}" if path != '/' else f"/{filename}"
@@ -2234,7 +2238,8 @@ class PrintJob:
             LOGGER.debug(f"Found latest video: {latest_path} from {latest_timestamp}")
             
             # Download the video to a temporary location
-            temp_video_path = tempfile.mktemp(suffix=os.path.splitext(latest_path)[1])
+            temp_video_fd, temp_video_path = tempfile.mkstemp(suffix=os.path.splitext(latest_path)[1])
+            os.close(temp_video_fd)  # Close the file descriptor as we'll use the path with open()
             
             with open(temp_video_path, 'wb') as f:
                 ftp.retrbinary(f'RETR {latest_path}', f.write)
@@ -2250,7 +2255,8 @@ class PrintJob:
                 ftp = None
             
             # Extract the last frame using ffmpeg
-            output_image = tempfile.mktemp(suffix='.jpg')
+            output_image_fd, output_image = tempfile.mkstemp(suffix='.jpg')
+            os.close(output_image_fd)  # Close the file descriptor as ffmpeg will write to the path
             
             # Use ffmpeg to extract the last frame
             # sseof seeks from the end, -vframes 1 extracts 1 frame
