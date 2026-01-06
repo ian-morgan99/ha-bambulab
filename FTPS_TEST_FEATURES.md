@@ -1,10 +1,12 @@
 # FTPS Testing Features
 
-This document describes the three new button entities added to test and verify FTPS connectivity with Bambu Lab printers.
+This document describes the three new button entities and three new number entities added to test and verify FTPS connectivity with Bambu Lab printers.
 
 ## Overview
 
 These buttons are designed to help users verify that FTPS (FTP over SSL/TLS) is working correctly, which is essential for spaghetti detection and other advanced features.
+
+The new number entities allow users to configure which image/video to retrieve and which frame to extract, enabling better testing and debugging.
 
 ## New Button Entities
 
@@ -25,30 +27,72 @@ These buttons are designed to help users verify that FTPS (FTP over SSL/TLS) is 
 
 **Entity ID**: `button.<printer_name>_get_last_image`
 
-**Description**: Finds and displays the most recent image file (JPG, JPEG, or PNG) from the printer.
+**Description**: Finds and displays an image file (JPG, JPEG, or PNG) from the printer based on the configured index.
 
 **What it does**:
 - Scans the printer's directories (`/timelapse`, `/cache`, `/`) for image files
-- Identifies the most recently modified image based on timestamp
-- Downloads the image and displays it in a Home Assistant notification
-- Shows the image path and timestamp
+- Sorts images by timestamp (most recent first)
+- Downloads the image at the configured index (0=latest, 1=2nd latest, etc.)
+- Displays the image in a Home Assistant notification
+- Shows the image path, timestamp, and index information
 
-**Use case**: Verify that image files are accessible via FTPS for spaghetti detection.
+**Configuration**: Use the `number.<printer_name>_ftps_test_image_index` entity to select which image to retrieve (0-20).
+
+**Use case**: Verify that image files are accessible via FTPS for spaghetti detection, and test with different images when debugging issues.
 
 ### 3. Get Last Frame
 
 **Entity ID**: `button.<printer_name>_get_last_frame`
 
-**Description**: Finds the latest video file and extracts its last frame.
+**Description**: Finds a video file and extracts a frame at a configurable offset from the end.
 
 **What it does**:
 - Scans the printer's directories for video files (AVI, MPG, MPEG, MP4)
-- Identifies the most recently modified video
-- Downloads the video and uses FFmpeg to extract the last frame
+- Sorts videos by timestamp (most recent first)
+- Downloads the video at the configured index (0=latest, 1=2nd latest, etc.)
+- Uses FFmpeg to extract a frame at the configured offset from the end of the video
 - Displays the extracted frame in a Home Assistant notification
-- Shows the video path and timestamp
+- Shows the video path, timestamp, index, and frame offset information
 
-**Use case**: Verify that video files are accessible and that frame extraction works, which is crucial for spaghetti detection during layer changes.
+**Configuration**: 
+- Use the `number.<printer_name>_ftps_test_video_index` entity to select which video to use (0-20)
+- Use the `number.<printer_name>_ftps_test_frame_offset` entity to set how many seconds from the end to extract the frame (1-60)
+
+**Use case**: Verify that video files are accessible and that frame extraction works. This is crucial for debugging black frame issues or testing different parts of videos.
+
+## New Number Entities
+
+### 1. FTPS Test Video Index
+
+**Entity ID**: `number.<printer_name>_ftps_test_video_index`
+
+**Description**: Selects which video to use when pressing the "Get Last Frame" button.
+
+**Range**: 0-20 (0 = most recent video, 1 = 2nd most recent, etc.)
+
+**Default**: 0 (latest video)
+
+### 2. FTPS Test Frame Offset
+
+**Entity ID**: `number.<printer_name>_ftps_test_frame_offset`
+
+**Description**: Sets how many seconds from the end of the video to extract a frame.
+
+**Range**: 1-60 seconds
+
+**Default**: 1 second from end
+
+**Use case**: If the last second of a video is black, increase this value to extract a frame from earlier in the video.
+
+### 3. FTPS Test Image Index
+
+**Entity ID**: `number.<printer_name>_ftps_test_image_index`
+
+**Description**: Selects which image to retrieve when pressing the "Get Last Image" button.
+
+**Range**: 0-20 (0 = most recent image, 1 = 2nd most recent, etc.)
+
+**Default**: 0 (latest image)
 
 ## Technical Details
 
@@ -95,12 +139,28 @@ For full spaghetti detection, the integration will need to:
 
 ## Usage
 
-To use these buttons:
+To use these features:
 
 1. Navigate to your Bambu Lab printer device in Home Assistant
-2. Find the three new buttons under the diagnostic category
-3. Press any button to test the corresponding functionality
-4. Check your Home Assistant notifications for the results
+2. Find the three new number entities under the diagnostic category to configure test parameters:
+   - **FTPS Test Image Index**: Set which image to retrieve (0=latest, 1=2nd latest, etc.)
+   - **FTPS Test Video Index**: Set which video to use (0=latest, 1=2nd latest, etc.)
+   - **FTPS Test Frame Offset**: Set how many seconds from the end to extract a frame (1-60)
+3. Find the three buttons under the diagnostic category
+4. Press any button to test the corresponding functionality
+5. Check your Home Assistant notifications for the results
+
+### Example Workflows
+
+**Testing different parts of a video:**
+1. Set "FTPS Test Frame Offset" to 1 second - press "Get Last Frame" - check the result
+2. If the frame is black, set "FTPS Test Frame Offset" to 5 seconds - press "Get Last Frame" again
+3. Continue adjusting until you find a good frame
+
+**Testing older files:**
+1. Set "FTPS Test Video Index" to 1 to get the 2nd most recent video
+2. Press "Get Last Frame" to see a frame from that video
+3. Set to 2 for the 3rd most recent, and so on
 
 ## Troubleshooting
 
@@ -111,6 +171,29 @@ If any button fails:
 3. **Printer Permissions**: Ensure the access code has proper permissions
 4. **FFmpeg Availability**: For "Get Last Frame", ensure FFmpeg is available in your Home Assistant installation
 5. **Check Logs**: Look for error messages in the Home Assistant logs under the `custom_components.bambu_lab` logger
+
+### Common Issues
+
+**"No image files found"**
+- Check if your printer has any image files in `/timelapse`, `/cache`, or `/` directories
+- Try pressing the "Test FTPS" button to see what files exist
+- Ensure your printer has completed at least one print with timelapse enabled
+
+**"Only X image(s) found, cannot retrieve index Y"**
+- You've set the image/video index too high
+- Lower the index number to within the available range
+- The notification will tell you how many files were found
+
+**"Last frame is black"**
+- The end of the video may be black/empty
+- Increase the "FTPS Test Frame Offset" value to extract a frame from earlier in the video
+- Try values like 5, 10, or 20 seconds from the end
+
+**"Failed to extract frame from video"**
+- Check FFmpeg is installed and accessible
+- Check the video file isn't corrupted
+- Try a different video by adjusting the "FTPS Test Video Index"
+- Check Home Assistant logs for detailed FFmpeg error messages
 
 ## Notes
 

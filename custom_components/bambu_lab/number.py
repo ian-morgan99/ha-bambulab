@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import EntityCategory
 
 from .const import (
     DOMAIN,
@@ -60,6 +61,46 @@ NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
     ),
 )
 
+# FTPS test parameter numbers (diagnostic)
+FTPS_TEST_NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
+    BambuLabNumberEntityDescription(
+        key="ftps_test_video_index",
+        translation_key="ftps_test_video_index",
+        icon="mdi:video",
+        mode=NumberMode.BOX,
+        native_min_value=0,
+        native_max_value=20,
+        native_step=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda self: self.coordinator.get_model().print_job.ftps_test_video_index,
+        set_value_fn=lambda self, value: setattr(self.coordinator.get_model().print_job, 'ftps_test_video_index', int(value)),
+    ),
+    BambuLabNumberEntityDescription(
+        key="ftps_test_frame_offset",
+        translation_key="ftps_test_frame_offset",
+        icon="mdi:timer",
+        mode=NumberMode.BOX,
+        native_min_value=1,
+        native_max_value=60,
+        native_step=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda self: self.coordinator.get_model().print_job.ftps_test_frame_offset,
+        set_value_fn=lambda self, value: setattr(self.coordinator.get_model().print_job, 'ftps_test_frame_offset', int(value)),
+    ),
+    BambuLabNumberEntityDescription(
+        key="ftps_test_image_index",
+        translation_key="ftps_test_image_index",
+        icon="mdi:image",
+        mode=NumberMode.BOX,
+        native_min_value=0,
+        native_max_value=20,
+        native_step=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda self: self.coordinator.get_model().print_job.ftps_test_image_index,
+        set_value_fn=lambda self, value: setattr(self.coordinator.get_model().print_job, 'ftps_test_image_index', int(value)),
+    ),
+)
+
 
 async def async_setup_entry(
         hass: HomeAssistant,
@@ -73,9 +114,18 @@ async def async_setup_entry(
         
     LOGGER.debug("NUMBER::async_setup_entry")
 
+    entities = []
+    
+    # Add FTPS test numbers (always available for diagnostics)
+    for description in FTPS_TEST_NUMBERS:
+        entities.append(BambuLabNumber(coordinator, description, entry))
+    
+    # Add temperature control numbers if not blocked
     if not coordinator.get_model().info.is_hybrid_mode_blocking and not coordinator.get_model().print_fun.mqtt_signature_required:
         for description in NUMBERS:
-            async_add_entities([BambuLabNumber(coordinator, description, entry)])
+            entities.append(BambuLabNumber(coordinator, description, entry))
+    
+    async_add_entities(entities)
 
     LOGGER.debug("NUMBER::async_setup_entry DONE")
 
