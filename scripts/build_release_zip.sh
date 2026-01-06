@@ -36,5 +36,58 @@ mv "$BACKUP_FILE" "$MANIFEST_FILE"
 echo "✓ Created bambu_lab.zip"
 echo "  Location: $REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"
 echo ""
-echo "To upload to a release, use:"
-echo "  gh release upload v$VERSION $REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"
+
+# Check if we should publish the release
+if [ "$PUBLISH" = "true" ]; then
+    echo "Creating GitHub release v$VERSION..."
+    
+    # Check if working directory is clean
+    if ! git diff-index --quiet HEAD --; then
+        echo "✗ Error: Working directory has uncommitted changes"
+        echo "Please commit or stash changes before publishing"
+        exit 1
+    fi
+    
+    # Create git tag if it doesn't exist
+    if ! git rev-parse "v$VERSION" >/dev/null 2>&1; then
+        if git tag -a "v$VERSION" -m "Release version $VERSION"; then
+            if git push origin "v$VERSION"; then
+                echo "✓ Created and pushed tag v$VERSION"
+            else
+                echo "✗ Failed to push tag v$VERSION"
+                exit 1
+            fi
+        else
+            echo "✗ Failed to create tag v$VERSION"
+            exit 1
+        fi
+    else
+        echo "✓ Tag v$VERSION already exists"
+    fi
+    
+    # Create or update the release
+    if gh release view "v$VERSION" >/dev/null 2>&1; then
+        echo "✓ Release v$VERSION already exists, uploading zip..."
+        if ! gh release upload "v$VERSION" "$REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip" --clobber; then
+            echo "✗ Failed to upload zip to release"
+            exit 1
+        fi
+    else
+        echo "✓ Creating new release v$VERSION..."
+        if ! gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --notes "Release version $VERSION" \
+            "$REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"; then
+            echo "✗ Failed to create release"
+            exit 1
+        fi
+    fi
+    
+    echo "✓ Published release v$VERSION"
+else
+    echo "To upload to a release, use:"
+    echo "  gh release upload v$VERSION $REPO_ROOT/custom_components/bambu_lab/bambu_lab.zip"
+    echo ""
+    echo "Or run with PUBLISH=true to automatically create and publish the release:"
+    echo "  PUBLISH=true ./scripts/build_release_zip.sh $VERSION"
+fi

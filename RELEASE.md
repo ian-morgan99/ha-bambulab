@@ -78,6 +78,19 @@ Alternatively, you can build and upload the zip manually:
 gh release upload v1.0.0.2 custom_components/bambu_lab/bambu_lab.zip
 ```
 
+Or you can build and publish the release in one step:
+
+```bash
+# Build and automatically create/publish the release
+PUBLISH=true ./scripts/build_release_zip.sh 1.0.0.2
+```
+
+This will:
+- Build the bambu_lab.zip file
+- Create the git tag v1.0.0.2 (if it doesn't exist)
+- Create or update the GitHub release
+- Upload the zip file to the release
+
 ### HACS cannot download the integration
 
 Ensure that:
