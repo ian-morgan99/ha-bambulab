@@ -2230,11 +2230,11 @@ class PrintJob:
             frame_offset: Seconds from end of video to extract frame (must be >= 1)
         """
         # Validate frame_offset to prevent FFmpeg issues
-        if frame_offset < 1:
-            LOGGER.error(f"Invalid frame_offset: {frame_offset}. Must be >= 1")
+        if frame_offset < 1 or frame_offset > 60:
+            LOGGER.error(f"Invalid frame_offset: {frame_offset}. Must be between 1 and 60 seconds")
             return {
                 "success": False,
-                "message": f"Invalid frame offset: {frame_offset}. Must be at least 1 second.",
+                "message": f"Invalid frame offset: {frame_offset}. Must be between 1 and 60 seconds.",
                 "video_path": None,
                 "image_data": None
             }
