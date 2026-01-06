@@ -324,6 +324,15 @@
       },
       "target_nozzle_temperature": {
         "name": "Nozzle target temperature"
+      },
+      "ftps_test_video_index": {
+        "name": "FTPS Test Video Index"
+      },
+      "ftps_test_frame_offset": {
+        "name": "FTPS Test Frame Offset"
+      },
+      "ftps_test_image_index": {
+        "name": "FTPS Test Image Index"
       }
     },
     "select": {

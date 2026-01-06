@@ -278,6 +278,7 @@ class BambuLabGetLastImageButton(BambuLabButton):
 
 Path: `{result['image_path']}`
 Timestamp: {result.get('timestamp', 'Unknown')}
+Image Index: {result.get('image_index', 0)} of {result.get('total_images', 'unknown')}
 
 ![Image](data:{mime_type};base64,{image_base64})
 """
@@ -311,6 +312,8 @@ class BambuLabGetLastFrameButton(BambuLabButton):
 
 Video: `{result['video_path']}`
 Timestamp: {result.get('timestamp', 'Unknown')}
+Video Index: {result.get('video_index', 0)} of {result.get('total_videos', 'unknown')}
+Frame Offset: {result.get('frame_offset', 1)} seconds from end
 
 ![Frame](data:image/jpeg;base64,{image_base64})
 """

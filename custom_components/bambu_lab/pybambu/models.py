@@ -869,6 +869,10 @@ class PrintJob:
     _ftpRunAgain: bool
     _ftpThread: threading.Thread
     _ftp_download_percentage: int
+    # FTPS test parameters
+    ftps_test_video_index: int
+    ftps_test_frame_offset: int
+    ftps_test_image_index: int
 
     def __init__(self, client):
         self._client = client
@@ -898,6 +902,10 @@ class PrintJob:
         self._ftpRunAgain = False
         self._ftpThread = None
         self._ftp_download_percentage = 100
+        # Initialize FTPS test parameters
+        self.ftps_test_video_index = 0  # 0 = latest video
+        self.ftps_test_frame_offset = 1  # seconds from end
+        self.ftps_test_image_index = 0  # 0 = latest image
 
     @property
     def model_download_percentage(self) -> int:
@@ -2119,14 +2127,18 @@ class PrintJob:
     async def async_get_last_image(self) -> dict:
         """Find and return the most recent image file (jpg, jpeg, png)."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._sync_get_last_image)
+        return await loop.run_in_executor(None, self._sync_get_last_image, self.ftps_test_image_index)
 
-    def _sync_get_last_image(self) -> dict:
-        """Synchronous method to find the most recent image via FTP."""
+    def _sync_get_last_image(self, image_index: int = 0) -> dict:
+        """Synchronous method to find the most recent image via FTP.
+        
+        Args:
+            image_index: Which image to retrieve (0=latest, 1=2nd latest, etc.)
+        """
         ftp = None
         try:
             ftp = self._client.ftp_connection()
-            LOGGER.debug("Connected to FTP for image search")
+            LOGGER.debug(f"Connected to FTP for image search (index: {image_index})")
             
             # Search paths to look for images
             search_paths = ['/timelapse', '/cache', '/']
@@ -2150,18 +2162,30 @@ class PrintJob:
                     continue
             
             if not all_images:
+                LOGGER.warning(f"No image files found in any search path: {search_paths}")
                 return {
                     "success": False,
-                    "message": "No image files found",
+                    "message": f"No image files found in {', '.join(search_paths)}",
                     "image_path": None,
                     "image_data": None
                 }
             
-            # Sort by timestamp and get the most recent
+            # Sort by timestamp (most recent first) and get the requested index
             all_images.sort(key=lambda x: x[0], reverse=True)
-            latest_timestamp, latest_path, latest_size = all_images[0]
+            LOGGER.info(f"Found {len(all_images)} total images")
             
-            LOGGER.debug(f"Found latest image: {latest_path} from {latest_timestamp}")
+            # Check if requested index is valid
+            if image_index >= len(all_images):
+                return {
+                    "success": False,
+                    "message": f"Only {len(all_images)} image(s) found, cannot retrieve index {image_index}",
+                    "image_path": None,
+                    "image_data": None
+                }
+            
+            latest_timestamp, latest_path, latest_size = all_images[image_index]
+            
+            LOGGER.debug(f"Retrieving image at index {image_index}: {latest_path} from {latest_timestamp}")
             
             # Download the image
             image_data = io.BytesIO()
@@ -2170,10 +2194,12 @@ class PrintJob:
             
             return {
                 "success": True,
-                "message": f"Found latest image: {os.path.basename(latest_path)}",
+                "message": f"Found image (index {image_index}): {os.path.basename(latest_path)}",
                 "image_path": latest_path,
                 "image_data": image_data.getvalue(),
-                "timestamp": latest_timestamp.isoformat()
+                "timestamp": latest_timestamp.isoformat(),
+                "total_images": len(all_images),
+                "image_index": image_index
             }
             
         except Exception as e:
@@ -2194,15 +2220,20 @@ class PrintJob:
     async def async_get_last_video_frame(self) -> dict:
         """Find the latest video file and extract its last frame."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._sync_get_last_video_frame)
+        return await loop.run_in_executor(None, self._sync_get_last_video_frame, self.ftps_test_video_index, self.ftps_test_frame_offset)
 
-    def _sync_get_last_video_frame(self) -> dict:
-        """Synchronous method to find and extract last frame from latest video."""
+    def _sync_get_last_video_frame(self, video_index: int = 0, frame_offset: int = 1) -> dict:
+        """Synchronous method to find and extract last frame from latest video.
+        
+        Args:
+            video_index: Which video to use (0=latest, 1=2nd latest, etc.)
+            frame_offset: Seconds from end of video to extract frame
+        """
         ftp = None
         temp_video_path = None
         try:
             ftp = self._client.ftp_connection()
-            LOGGER.debug("Connected to FTP for video search")
+            LOGGER.debug(f"Connected to FTP for video search (index: {video_index}, offset: {frame_offset}s)")
             
             # Search paths for videos
             search_paths = ['/timelapse', '/cache', '/']
@@ -2226,23 +2257,36 @@ class PrintJob:
                     continue
             
             if not all_videos:
+                LOGGER.warning(f"No video files found in any search path: {search_paths}")
                 return {
                     "success": False,
-                    "message": "No video files found",
+                    "message": f"No video files found in {', '.join(search_paths)}",
                     "video_path": None,
                     "image_data": None
                 }
             
-            # Sort by timestamp and get the most recent
+            # Sort by timestamp (most recent first) and get the requested index
             all_videos.sort(key=lambda x: x[0], reverse=True)
-            latest_timestamp, latest_path, latest_size = all_videos[0]
+            LOGGER.info(f"Found {len(all_videos)} total videos")
             
-            LOGGER.debug(f"Found latest video: {latest_path} from {latest_timestamp}")
+            # Check if requested index is valid
+            if video_index >= len(all_videos):
+                return {
+                    "success": False,
+                    "message": f"Only {len(all_videos)} video(s) found, cannot retrieve index {video_index}",
+                    "video_path": None,
+                    "image_data": None
+                }
+            
+            latest_timestamp, latest_path, latest_size = all_videos[video_index]
+            
+            LOGGER.debug(f"Retrieving video at index {video_index}: {latest_path} from {latest_timestamp} (size: {latest_size} bytes)")
             
             # Download the video to a temporary location
             temp_video_fd, temp_video_path = tempfile.mkstemp(suffix=os.path.splitext(latest_path)[1])
             os.close(temp_video_fd)  # Close the file descriptor as we'll use the path with open()
             
+            LOGGER.debug(f"Downloading video to {temp_video_path}")
             with open(temp_video_path, 'wb') as f:
                 ftp.retrbinary(f'RETR {latest_path}', f.write)
             
@@ -2260,11 +2304,11 @@ class PrintJob:
             output_image_fd, output_image = tempfile.mkstemp(suffix='.jpg')
             os.close(output_image_fd)  # Close the file descriptor as ffmpeg will write to the path
             
-            # Use ffmpeg to extract the last frame
+            # Use ffmpeg to extract the frame at specified offset from end
             # sseof seeks from the end, -vframes 1 extracts 1 frame
             cmd = [
                 'ffmpeg',
-                '-sseof', f'-{FFMPEG_SEEK_SECONDS_FROM_END}',  # Seek to 1 second from end
+                '-sseof', f'-{frame_offset}',  # Seek to N seconds from end
                 '-i', temp_video_path,
                 '-vframes', '1',  # Extract 1 frame
                 '-q:v', '2',  # High quality
@@ -2272,13 +2316,24 @@ class PrintJob:
                 output_image
             ]
             
+            LOGGER.debug(f"Running ffmpeg command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode != 0 or not os.path.exists(output_image):
                 LOGGER.error(f"FFmpeg failed: {result.stderr}")
                 return {
                     "success": False,
-                    "message": f"Failed to extract frame from video",
+                    "message": f"Failed to extract frame from video. FFmpeg error: {result.stderr[:200]}",
+                    "video_path": latest_path,
+                    "image_data": None
+                }
+            
+            # Check if the output file has content
+            if os.path.getsize(output_image) == 0:
+                LOGGER.error("FFmpeg produced an empty file")
+                return {
+                    "success": False,
+                    "message": "Failed to extract frame: output file is empty",
                     "video_path": latest_path,
                     "image_data": None
                 }
@@ -2286,6 +2341,8 @@ class PrintJob:
             # Read the extracted frame
             with open(output_image, 'rb') as f:
                 frame_data = f.read()
+            
+            LOGGER.debug(f"Extracted frame: {len(frame_data)} bytes")
             
             # Clean up temporary files
             try:
@@ -2295,10 +2352,13 @@ class PrintJob:
             
             return {
                 "success": True,
-                "message": f"Extracted last frame from: {os.path.basename(latest_path)}",
+                "message": f"Extracted frame from video (index {video_index}, offset -{frame_offset}s): {os.path.basename(latest_path)}",
                 "video_path": latest_path,
                 "image_data": frame_data,
-                "timestamp": latest_timestamp.isoformat()
+                "timestamp": latest_timestamp.isoformat(),
+                "total_videos": len(all_videos),
+                "video_index": video_index,
+                "frame_offset": frame_offset
             }
             
         except subprocess.TimeoutExpired:
