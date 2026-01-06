@@ -43,7 +43,7 @@ if [ "$PUBLISH" = "true" ]; then
     
     # Check if working directory is clean
     if ! git diff-index --quiet HEAD --; then
-        echo "⚠ Warning: Working directory has uncommitted changes"
+        echo "✗ Error: Working directory has uncommitted changes"
         echo "Please commit or stash changes before publishing"
         exit 1
     fi
