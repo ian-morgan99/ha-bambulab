@@ -9,7 +9,7 @@ This document describes how to create a release for the Bambu Lab integration.
 
 ## Creating a Release
 
-### Option 1: Using GitHub UI
+### Option 1: Using GitHub UI (Recommended)
 
 1. Go to the [Releases page](../../releases)
 2. Click "Draft a new release"
@@ -17,24 +17,37 @@ This document describes how to create a release for the Bambu Lab integration.
 4. Type the new version number (e.g., `v1.0.0`) and click "Create new tag"
 5. Fill in the release title (e.g., `v1.0.0`)
 6. Add release notes describing what's new or changed
-7. Click "Publish release"
+7. Click "Publish release" (or "Save draft" to review later)
 
-The [publish workflow](../../actions/workflows/publish.yml) will automatically:
+The [publish workflow](../../actions/workflows/publish.yml) will automatically trigger when the release is created and will:
 - Update the manifest.json version to match the tag
 - Create bambu_lab.zip containing the integration files
 - Attach the zip file to the release
 
+**Note:** If you create a draft release, the workflow will attach the zip file to the draft. You can then review the release and publish it manually when ready. This ensures the zip file is always available before users can download it.
+
 ### Option 2: Using GitHub CLI
 
 ```bash
-# Create and publish a release
+# Create a draft release (recommended - allows review before publishing)
+gh release create v1.0.0 \
+  --draft \
+  --title "v1.0.0" \
+  --notes "Release notes here" \
+  --repo ian-morgan99/ha-bambulab
+
+# The publish workflow will run automatically and attach the zip file to the draft
+# Then you can publish it when ready with:
+# gh release edit v1.0.0 --draft=false --repo ian-morgan99/ha-bambulab
+
+# Or create and publish immediately
 gh release create v1.0.0 \
   --title "v1.0.0" \
   --notes "Release notes here" \
   --repo ian-morgan99/ha-bambulab
 ```
 
-The publish workflow will run automatically and attach the zip file.
+The publish workflow will run automatically when the release is created and attach the zip file.
 
 ## Version Numbering
 

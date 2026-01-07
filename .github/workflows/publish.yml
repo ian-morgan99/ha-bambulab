@@ -3,7 +3,7 @@ name: Publish
 on:
   release:
     types:
-      - published
+      - created  # Trigger when release is first created (as draft or published)
   workflow_dispatch:
     inputs:
       tag:
