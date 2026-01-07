@@ -48,7 +48,7 @@ jobs:
           zip bambu_lab.zip -r ./
 
       - name: ☁️ Upload zip to release
-        uses: softprops/action-gh-release@v2.5.0
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
           files: "${{ github.workspace }}/custom_components/bambu_lab/bambu_lab.zip"
