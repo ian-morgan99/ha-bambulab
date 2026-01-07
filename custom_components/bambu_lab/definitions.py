@@ -648,6 +648,44 @@ PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:identifier",
         value_fn=lambda self: self.coordinator.get_model().info.serial
+    ),
+    BambuLabSensorEntityDescription(
+        key="spaghetti_detection_status",
+        translation_key="spaghetti_detection_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.ENUM,
+        options=["disabled", "inactive", "monitoring", "alert"],
+        icon="mdi:eye",
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.alert_status,
+        extra_attributes=lambda self: {
+            "enabled": self.coordinator.get_model().spaghetti_detector.is_enabled,
+            "monitoring_active": self.coordinator.get_model().spaghetti_detector.monitoring_active,
+            "alert_triggered": self.coordinator.get_model().spaghetti_detector.alert_triggered,
+        }
+    ),
+    BambuLabSensorEntityDescription(
+        key="spaghetti_edge_density",
+        translation_key="spaghetti_edge_density",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:chart-line",
+        suggested_display_precision=4,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.current_edge_density,
+        extra_attributes=lambda self: {
+            "average_edge_density": round(self.coordinator.get_model().spaghetti_detector.average_edge_density, 4),
+            "rate_of_change": round(self.coordinator.get_model().spaghetti_detector.rate_of_change, 4),
+            "history_size": len(self.coordinator.get_model().spaghetti_detector.layer_history),
+            "current_layer": self.coordinator.get_model().print_job.current_layer,
+            "total_layers": self.coordinator.get_model().print_job.total_layers,
+        }
+    ),
+    BambuLabSensorEntityDescription(
+        key="spaghetti_test_result",
+        translation_key="spaghetti_test_result",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:test-tube",
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.test_mode_data.get("edge_density", "No test run") if self.coordinator.get_model().spaghetti_detector.test_mode_data else "No test run",
+        extra_attributes=lambda self: self.coordinator.get_model().spaghetti_detector.test_mode_data if self.coordinator.get_model().spaghetti_detector.test_mode_data else {}
     )
 )
 
