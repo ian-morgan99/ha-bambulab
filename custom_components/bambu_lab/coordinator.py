@@ -773,8 +773,8 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             # Try to get image from camera entity
             if state.domain == "camera":
                 try:
-                    from homeassistant.components.camera import async_get_image
-                    image = await async_get_image(self._hass, entity_id)
+                    from homeassistant.components.camera import async_get_image as async_get_camera_image
+                    image = await async_get_camera_image(self._hass, entity_id)
                     if image:
                         image_bytes = image.content
                 except Exception as e:
@@ -784,8 +784,8 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             elif state.domain == "image":
                 # For image entities, the image data is typically stored as an attribute or accessible via the entity
                 try:
-                    from homeassistant.components.image import async_get_image
-                    image = await async_get_image(self._hass, entity_id)
+                    from homeassistant.components.image import async_get_image as async_get_image_entity
+                    image = await async_get_image_entity(self._hass, entity_id)
                     if image:
                         image_bytes = image.content
                 except Exception as e:
@@ -802,8 +802,10 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             LOGGER.debug(f"Retrieved {len(image_bytes)} bytes from external camera {entity_id} for layer {layer}")
             
             # Analyze the image using the spaghetti detector
+            # The analyze_on_layer_change method accepts bytearray, so convert if needed
             detector = self.get_model().spaghetti_detector
-            detector.analyze_on_layer_change(bytearray(image_bytes), layer)
+            image_data = image_bytes if isinstance(image_bytes, bytearray) else bytearray(image_bytes)
+            detector.analyze_on_layer_change(image_data, layer)
             
         except Exception as e:
             LOGGER.error(f"Error fetching and analyzing external camera image: {e}", exc_info=True)

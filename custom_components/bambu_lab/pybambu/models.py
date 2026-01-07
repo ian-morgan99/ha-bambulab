@@ -1002,10 +1002,10 @@ class PrintJob:
         if self.current_layer != old_current_layer and self.current_layer > 0:
             if self._client._device.spaghetti_detector.monitoring_active:
                 # Check if external camera is configured
-                external_camera_id = self._client._device.spaghetti_detector.external_camera_entity_id
-                if external_camera_id:
+                external_camera_entity_id = self._client._device.spaghetti_detector.external_camera_entity_id
+                if external_camera_entity_id:
                     # Store pending layer for external camera analysis - coordinator will handle image fetch
-                    LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, pending external camera analysis for entity: {external_camera_id}")
+                    LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, pending external camera analysis for entity: {external_camera_entity_id}")
                     self._client._device.spaghetti_detector._pending_external_layer = self.current_layer
                     self._client.callback("event_layer_change_external_camera")
                 else:

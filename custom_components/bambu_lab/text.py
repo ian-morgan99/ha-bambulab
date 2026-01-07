@@ -34,14 +34,24 @@ class BambuLabTextEntityDescription(TextEntityDescription, BambuLabTextEntityDes
     """Text entity description for Bambu Lab."""
 
 
+def _get_external_camera_entity_id(entity_self) -> str:
+    """Get the external camera entity ID for spaghetti detection."""
+    return entity_self.coordinator.get_model().spaghetti_detector.external_camera_entity_id
+
+
+async def _set_external_camera_entity_id(entity_self, value: str) -> None:
+    """Set the external camera entity ID for spaghetti detection."""
+    entity_self.coordinator.get_model().spaghetti_detector.set_external_camera_entity_id(value)
+
+
 SPAGHETTI_DETECTION_TEXT: tuple[BambuLabTextEntityDescription, ...] = (
     BambuLabTextEntityDescription(
         key="spaghetti_external_camera_entity_id",
         translation_key="spaghetti_external_camera_entity_id",
         icon="mdi:camera-plus",
         entity_category=EntityCategory.CONFIG,
-        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.external_camera_entity_id,
-        set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_external_camera_entity_id(value),
+        value_fn=_get_external_camera_entity_id,
+        set_value_fn=_set_external_camera_entity_id,
     ),
 )
 
