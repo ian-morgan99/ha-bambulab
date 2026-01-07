@@ -280,6 +280,9 @@
       },
       "get_last_frame": {
         "name": "Get Last Frame"
+      },
+      "test_spaghetti_detection": {
+        "name": "Test Spaghetti Detection"
       }
     },
     "fan": {
@@ -333,6 +336,15 @@
       },
       "ftps_test_image_index": {
         "name": "FTPS Test Image Index"
+      },
+      "spaghetti_edge_density_threshold": {
+        "name": "Spaghetti Edge Density Threshold"
+      },
+      "spaghetti_rate_threshold": {
+        "name": "Spaghetti Rate Threshold"
+      },
+      "spaghetti_rate_window_size": {
+        "name": "Spaghetti Rate Window Size"
       }
     },
     "select": {
@@ -629,6 +641,21 @@
       },
       "serial": {
         "name": "Serial number"
+      },
+      "spaghetti_detection_status": {
+        "name": "Spaghetti Detection Status",
+        "state": {
+          "disabled": "Disabled",
+          "inactive": "Inactive",
+          "monitoring": "Monitoring",
+          "alert": "Alert"
+        }
+      },
+      "spaghetti_edge_density": {
+        "name": "Spaghetti Edge Density"
+      },
+      "spaghetti_test_result": {
+        "name": "Spaghetti Test Result"
       },
       "humidity_index": {
         "name": "Humidity index"

@@ -101,6 +101,46 @@ FTPS_TEST_NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
     ),
 )
 
+# Spaghetti detection configuration numbers (diagnostic)
+SPAGHETTI_DETECTION_NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
+    BambuLabNumberEntityDescription(
+        key="spaghetti_edge_density_threshold",
+        translation_key="spaghetti_edge_density_threshold",
+        icon="mdi:gauge",
+        mode=NumberMode.BOX,
+        native_min_value=0.0,
+        native_max_value=1.0,
+        native_step=0.01,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.edge_density_threshold,
+        set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_edge_density_threshold(float(value)),
+    ),
+    BambuLabNumberEntityDescription(
+        key="spaghetti_rate_threshold",
+        translation_key="spaghetti_rate_threshold",
+        icon="mdi:speedometer",
+        mode=NumberMode.BOX,
+        native_min_value=0.0,
+        native_max_value=1.0,
+        native_step=0.01,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.rate_threshold,
+        set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_rate_threshold(float(value)),
+    ),
+    BambuLabNumberEntityDescription(
+        key="spaghetti_rate_window_size",
+        translation_key="spaghetti_rate_window_size",
+        icon="mdi:window-maximize",
+        mode=NumberMode.BOX,
+        native_min_value=3,
+        native_max_value=20,
+        native_step=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.rate_window_size,
+        set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_rate_window_size(int(value)),
+    ),
+)
+
 
 async def async_setup_entry(
         hass: HomeAssistant,
@@ -118,6 +158,10 @@ async def async_setup_entry(
     
     # Add FTPS test numbers (always available for diagnostics)
     for description in FTPS_TEST_NUMBERS:
+        entities.append(BambuLabNumber(coordinator, description, entry))
+    
+    # Add spaghetti detection configuration numbers (always available for diagnostics)
+    for description in SPAGHETTI_DETECTION_NUMBERS:
         entities.append(BambuLabNumber(coordinator, description, entry))
     
     # Add temperature control numbers if not blocked

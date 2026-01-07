@@ -88,6 +88,12 @@ GET_LAST_FRAME_BUTTON_DESCRIPTION = ButtonEntityDescription(
     entity_category=EntityCategory.DIAGNOSTIC,
 )
 
+TEST_SPAGHETTI_DETECTION_BUTTON_DESCRIPTION = ButtonEntityDescription(
+    key="test_spaghetti_detection",
+    icon="mdi:test-tube",
+    translation_key="test_spaghetti_detection",
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
 
 async def async_setup_entry(
         hass: HomeAssistant,
@@ -110,7 +116,8 @@ async def async_setup_entry(
             BambuLabRefreshButton(coordinator, entry),
             BambuLabTestFTPSButton(coordinator, entry),
             BambuLabGetLastImageButton(coordinator, entry),
-            BambuLabGetLastFrameButton(coordinator, entry)
+            BambuLabGetLastFrameButton(coordinator, entry),
+            BambuLabTestSpaghettiDetectionButton(coordinator, entry)
         ]
 
         if coordinator.get_model().supports_feature(Features.FIRE_ALARM_BUZZER):
@@ -327,6 +334,64 @@ Frame Offset: {result.get('frame_offset', 1)} seconds from end
                 "title": "Last Video Frame",
                 "message": message,
                 "notification_id": f"bambu_last_frame_{self.coordinator.data.info.serial}"
+            }
+        )
+
+class BambuLabTestSpaghettiDetectionButton(BambuLabButton):
+    """BambuLab Test Spaghetti Detection Button"""
+
+    entity_description = TEST_SPAGHETTI_DETECTION_BUTTON_DESCRIPTION
+
+    async def async_press(self) -> None:
+        """Test spaghetti detection on the last video frame."""
+        # First get the last video frame
+        result = await self.coordinator.data.print_job.async_get_last_video_frame()
+        
+        if not result["success"] or not result["image_data"]:
+            message = f"**Failed to Get Image**\n\n{result['message']}"
+        else:
+            # Now analyze the frame with spaghetti detector
+            detector = self.coordinator.get_model().spaghetti_detector
+            analysis = detector.test_analyze_image(result["image_data"])
+            
+            if analysis["success"]:
+                # Convert image data to base64 for display in notification
+                image_base64 = base64.b64encode(result["image_data"]).decode('utf-8')
+                
+                message = f"""**Spaghetti Detection Test Results**
+
+Video: `{result['video_path']}`
+Video Index: {result.get('video_index', 0)} of {result.get('total_videos', 'unknown')}
+Frame Offset: {result.get('frame_offset', 1)} seconds from end
+
+**Edge Detection Metrics:**
+- Edge Density: {analysis['edge_density']:.4f} ({analysis['edge_percentage']:.2f}%)
+- Edge Pixels: {analysis['edge_pixel_count']:,} / {analysis['total_pixels']:,}
+- Image Size: {analysis['image_size'][0]}x{analysis['image_size'][1]}
+
+**Interpretation:**
+- Low density (< 0.05): Few edges, simple or empty scene
+- Normal density (0.05-0.15): Typical print with clean edges
+- High density (> 0.15): Complex structure or potential issues
+- Very high (> 0.25): Possible spaghetti or major failure
+
+![Frame](data:image/jpeg;base64,{image_base64})
+"""
+            else:
+                message = f"""**Spaghetti Detection Test Failed**
+
+Video: `{result.get('video_path', 'unknown')}`
+
+Analysis Error: {analysis.get('error', 'Unknown error')}
+"""
+        
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "Spaghetti Detection Test",
+                "message": message,
+                "notification_id": f"bambu_spaghetti_test_{self.coordinator.data.info.serial}"
             }
         )
 

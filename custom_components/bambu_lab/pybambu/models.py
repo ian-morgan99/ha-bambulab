@@ -994,8 +994,21 @@ class PrintJob:
         if old_subtask_name != self.subtask_name:
             LOGGER.debug(f"SUBTASK_NAME: {self.subtask_name}")
         self.file_type_icon = "mdi:file" if self.print_type != "cloud" else "mdi:cloud-outline"
+        old_current_layer = self.current_layer
         self.current_layer = data.get("layer_num", self.current_layer)
         self.total_layers = data.get("total_layer_num", self.total_layers)
+        
+        # Detect layer change and trigger spaghetti analysis if monitoring is active
+        if self.current_layer != old_current_layer and self.current_layer > 0:
+            if self._client._device.spaghetti_detector.monitoring_active:
+                # Get chamber image for analysis
+                chamber_image = self._client._device.chamber_image.get_image()
+                if chamber_image and len(chamber_image) > 0:
+                    LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, analyzing image ({len(chamber_image)} bytes)")
+                    self._client._device.spaghetti_detector.analyze_on_layer_change(chamber_image, self.current_layer)
+                else:
+                    LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, but no chamber image available")
+        
         self.ams_mapping = data.get("ams_mapping", self.ams_mapping)
         self._skipped_objects = data.get("s_obj", self._skipped_objects)
 
@@ -1021,8 +1034,10 @@ class PrintJob:
         if previously_idle and not currently_idle:
             self._client.callback("event_print_started")
             
-            # Reset spaghetti detector for new print
+            # Reset and start spaghetti detector for new print
             self._client._device.spaghetti_detector.reset()
+            if self._client._device.spaghetti_detector.is_enabled:
+                self._client._device.spaghetti_detector.start_monitoring()
 
             # Sometimes the download completes so fast we go from a prior print's 100% to 100% for the new print in one update.
             # Make sure we catch that case too. And Lan Mode never sets this - make sure we init it to 0.
@@ -1088,6 +1103,8 @@ class PrintJob:
             self._download_timelapse()
             timelapseDownloaded = True
             self._client.callback("event_print_canceled")
+            # Stop spaghetti monitoring
+            self._client._device.spaghetti_detector.stop_monitoring()
         self.print_error = data.get("print_error", self.print_error)
 
         # Handle print failed
@@ -1097,6 +1114,8 @@ class PrintJob:
                 if not timelapseDownloaded:
                     self._download_timelapse()
                     timelapseDownloaded = True
+            # Stop spaghetti monitoring
+            self._client._device.spaghetti_detector.stop_monitoring()
 
         # Handle print finish
         if previous_gcode_state != "unknown" and previous_gcode_state != "FINISH" and self.gcode_state == "FINISH":
@@ -1104,6 +1123,8 @@ class PrintJob:
                 self._download_timelapse()
                 timelapseDownloaded = True
             self._client.callback("event_print_finished")
+            # Stop spaghetti monitoring
+            self._client._device.spaghetti_detector.stop_monitoring()
 
         if currently_idle and not previously_idle and previous_gcode_state != "unknown":
             if self.start_time != None:
@@ -3526,6 +3547,17 @@ class SpaghettiDetector:
         self._alert_cooldown_layers = 3  # Don't re-alert for N layers
         self._cooldown_counter = 0
         
+        # Test and monitoring state
+        self._test_mode_data = None  # Stores results from manual test
+        self._monitoring_active = False  # True when print is running
+        self._layer_history = []  # List of (layer, edge_density, timestamp) tuples
+        self._max_history_size = 50  # Keep last 50 layer measurements
+        self._last_analyzed_layer = -1  # Track last layer we analyzed
+        
+        # Rate of change detection
+        self._rate_window_size = 5  # Calculate rate over last N layers
+        self._rate_threshold = 0.10  # 10% increase over window = alert
+        
     def enable(self):
         """Enable spaghetti detection."""
         self._enabled = True
@@ -3546,6 +3578,9 @@ class SpaghettiDetector:
         self._current_layer = 0
         self._layers_since_baseline = 0
         self._cooldown_counter = 0
+        self._layer_history = []
+        self._last_analyzed_layer = -1
+        self._monitoring_active = False
         LOGGER.debug("Spaghetti detector reset")
         
     def _convert_to_grayscale(self, image_bytes: bytearray) -> Image.Image:
@@ -3696,6 +3731,253 @@ class SpaghettiDetector:
             LOGGER.error(f"Error in spaghetti detection analysis: {e}", exc_info=True)
             # On error, don't trigger alert and return current state
             return self._alert_triggered
+    
+    def test_analyze_image(self, image_bytes: bytearray) -> dict:
+        """Test method to analyze a single image and return detailed metrics.
+        
+        This method is designed for manual testing and validation of edge detection.
+        It analyzes an image and returns comprehensive metrics without affecting
+        the detector state used for real-time monitoring.
+        
+        Args:
+            image_bytes: Raw image bytes (JPEG, PNG, etc.)
+            
+        Returns:
+            Dictionary containing:
+            - success: bool - whether analysis succeeded
+            - edge_density: float - calculated edge density (0.0 to 1.0)
+            - edge_pixel_count: int - number of edge pixels detected
+            - total_pixels: int - total pixels in processed image
+            - image_size: tuple - (width, height) of processed image
+            - error: str - error message if failed
+        """
+        try:
+            if not image_bytes or len(image_bytes) == 0:
+                return {
+                    "success": False,
+                    "error": "No image data provided"
+                }
+            
+            # Convert to grayscale
+            gray_image = self._convert_to_grayscale(image_bytes)
+            if gray_image is None:
+                return {
+                    "success": False,
+                    "error": "Failed to convert image to grayscale"
+                }
+            
+            # Compute edge map
+            edge_map = self._compute_edge_map(gray_image)
+            if edge_map is None:
+                return {
+                    "success": False,
+                    "error": "Failed to compute edge map"
+                }
+            
+            # Calculate edge density with detailed metrics
+            edge_density = self._calculate_edge_density(edge_map)
+            
+            # Get detailed pixel counts
+            threshold = 30
+            binary = edge_map.point(lambda x: 255 if x > threshold else 0)
+            histogram = binary.histogram()
+            edge_pixels = histogram[255] if len(histogram) > 255 else 0
+            total_pixels = binary.size[0] * binary.size[1]
+            
+            result = {
+                "success": True,
+                "edge_density": edge_density,
+                "edge_pixel_count": edge_pixels,
+                "total_pixels": total_pixels,
+                "image_size": edge_map.size,
+                "edge_percentage": (edge_pixels / total_pixels * 100) if total_pixels > 0 else 0
+            }
+            
+            # Store in test mode data for sensor access
+            self._test_mode_data = result
+            LOGGER.info(f"Test analysis complete: edge_density={edge_density:.4f}, edge_pixels={edge_pixels}/{total_pixels}")
+            
+            return result
+            
+        except Exception as e:
+            LOGGER.error(f"Error in test_analyze_image: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def start_monitoring(self):
+        """Start monitoring print for spaghetti detection."""
+        self._monitoring_active = True
+        self.reset()  # Clear any previous state
+        LOGGER.info("Spaghetti detection monitoring started")
+    
+    def stop_monitoring(self):
+        """Stop monitoring print for spaghetti detection."""
+        self._monitoring_active = False
+        LOGGER.info("Spaghetti detection monitoring stopped")
+    
+    def analyze_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
+        """Enhanced layer change analysis with historical tracking and rate detection.
+        
+        This method extends the base analyze_image_on_layer_change with:
+        - Historical tracking of edge density over layers
+        - Rate of change calculation
+        - More sophisticated alerting based on trends
+        
+        Args:
+            image_bytes: Raw image bytes from camera
+            current_layer: Current layer number
+            
+        Returns:
+            True if potential spaghetti/failure detected, False otherwise
+        """
+        if not self._enabled or not self._monitoring_active:
+            return False
+        
+        # Only analyze if we moved to a new layer
+        if current_layer <= self._last_analyzed_layer:
+            return self._alert_triggered
+        
+        self._last_analyzed_layer = current_layer
+        
+        try:
+            # Perform base analysis
+            base_result = self.analyze_image_on_layer_change(image_bytes, current_layer)
+            
+            # Calculate current edge density for historical tracking
+            gray_image = self._convert_to_grayscale(image_bytes)
+            if gray_image is not None:
+                edge_map = self._compute_edge_map(gray_image)
+                if edge_map is not None:
+                    current_density = self._calculate_edge_density(edge_map)
+                    
+                    # Add to history
+                    timestamp = datetime.now()
+                    self._layer_history.append((current_layer, current_density, timestamp))
+                    
+                    # Trim history to max size
+                    if len(self._layer_history) > self._max_history_size:
+                        self._layer_history = self._layer_history[-self._max_history_size:]
+                    
+                    # Calculate rate of change if we have enough history
+                    if len(self._layer_history) >= self._rate_window_size:
+                        rate_alert = self._check_rate_of_change()
+                        if rate_alert and not self._alert_triggered:
+                            self._alert_triggered = True
+                            self._cooldown_counter = self._alert_cooldown_layers
+                            LOGGER.warning(f"Spaghetti detection RATE ALERT at layer {current_layer}: rapid increase detected")
+                            self._client.callback("event_spaghetti_detected")
+                            return True
+            
+            return base_result
+            
+        except Exception as e:
+            LOGGER.error(f"Error in analyze_on_layer_change: {e}", exc_info=True)
+            return self._alert_triggered
+    
+    def _check_rate_of_change(self) -> bool:
+        """Check if rate of change in edge density exceeds threshold.
+        
+        Returns:
+            True if rate of change is anomalous, False otherwise
+        """
+        if len(self._layer_history) < self._rate_window_size:
+            return False
+        
+        # Get the last N measurements
+        recent = self._layer_history[-self._rate_window_size:]
+        
+        # Calculate average density at start and end of window
+        start_density = sum(d for _, d, _ in recent[:2]) / 2
+        end_density = sum(d for _, d, _ in recent[-2:]) / 2
+        
+        if start_density == 0:
+            return False
+        
+        # Calculate relative change
+        rate = (end_density - start_density) / start_density
+        
+        LOGGER.debug(f"Rate of change: {rate:.3f} over {self._rate_window_size} layers (threshold: {self._rate_threshold})")
+        
+        return rate > self._rate_threshold
+    
+    @property
+    def test_mode_data(self) -> dict:
+        """Get the last test analysis results."""
+        return self._test_mode_data if self._test_mode_data else {}
+    
+    @property
+    def monitoring_active(self) -> bool:
+        """Return True if actively monitoring a print."""
+        return self._monitoring_active
+    
+    @property
+    def layer_history(self) -> list:
+        """Return the historical layer data."""
+        return self._layer_history.copy()
+    
+    @property
+    def current_edge_density(self) -> float:
+        """Return the most recent edge density measurement."""
+        if self._layer_history:
+            return self._layer_history[-1][1]
+        return 0.0
+    
+    @property
+    def average_edge_density(self) -> float:
+        """Return the average edge density over all history."""
+        if not self._layer_history:
+            return 0.0
+        return sum(d for _, d, _ in self._layer_history) / len(self._layer_history)
+    
+    @property
+    def rate_of_change(self) -> float:
+        """Return the current rate of change in edge density."""
+        if len(self._layer_history) < self._rate_window_size:
+            return 0.0
+        
+        recent = self._layer_history[-self._rate_window_size:]
+        start_density = sum(d for _, d, _ in recent[:2]) / 2
+        end_density = sum(d for _, d, _ in recent[-2:]) / 2
+        
+        if start_density == 0:
+            return 0.0
+        
+        return (end_density - start_density) / start_density
+    
+    @property
+    def alert_status(self) -> str:
+        """Return human-readable alert status."""
+        if not self._enabled:
+            return "disabled"
+        if not self._monitoring_active:
+            return "inactive"
+        if self._alert_triggered:
+            return "alert"
+        return "monitoring"
+    
+    @property
+    def rate_window_size(self) -> int:
+        """Get the rate of change window size."""
+        return self._rate_window_size
+    
+    def set_rate_window_size(self, value: int):
+        """Set the rate of change window size."""
+        if value > 0:
+            self._rate_window_size = value
+            LOGGER.debug(f"Rate window size set to {value} layers")
+    
+    @property
+    def rate_threshold(self) -> float:
+        """Get the rate of change threshold."""
+        return self._rate_threshold
+    
+    def set_rate_threshold(self, value: float):
+        """Set the rate of change threshold."""
+        if 0.0 <= value <= 1.0:
+            self._rate_threshold = value
+            LOGGER.debug(f"Rate threshold set to {value}")
     
     @property
     def is_enabled(self) -> bool:
