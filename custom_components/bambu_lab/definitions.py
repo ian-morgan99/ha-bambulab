@@ -660,7 +660,7 @@ PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
         extra_attributes=lambda self: {
             "enabled": self.coordinator.get_model().spaghetti_detector.is_enabled,
             "monitoring_active": self.coordinator.get_model().spaghetti_detector.monitoring_active,
-            "alert_triggered": self.coordinator.get_model().spaghetti_detector._alert_triggered,
+            "alert_triggered": self.coordinator.get_model().spaghetti_detector.alert_triggered,
         }
     ),
     BambuLabSensorEntityDescription(

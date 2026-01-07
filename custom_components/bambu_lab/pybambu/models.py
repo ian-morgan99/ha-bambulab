@@ -3958,6 +3958,11 @@ class SpaghettiDetector:
         return "monitoring"
     
     @property
+    def alert_triggered(self) -> bool:
+        """Return True if an alert has been triggered."""
+        return self._alert_triggered
+    
+    @property
     def rate_window_size(self) -> int:
         """Get the rate of change window size."""
         return self._rate_window_size
