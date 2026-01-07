@@ -1001,13 +1001,21 @@ class PrintJob:
         # Detect layer change and trigger spaghetti analysis if monitoring is active
         if self.current_layer != old_current_layer and self.current_layer > 0:
             if self._client._device.spaghetti_detector.monitoring_active:
-                # Get chamber image for analysis
-                chamber_image = self._client._device.chamber_image.get_image()
-                if chamber_image and len(chamber_image) > 0:
-                    LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, analyzing image ({len(chamber_image)} bytes)")
-                    self._client._device.spaghetti_detector.analyze_on_layer_change(chamber_image, self.current_layer)
+                # Check if external camera is configured
+                external_camera_id = self._client._device.spaghetti_detector.external_camera_entity_id
+                if external_camera_id:
+                    # Store pending layer for external camera analysis - coordinator will handle image fetch
+                    LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, pending external camera analysis for entity: {external_camera_id}")
+                    self._client._device.spaghetti_detector._pending_external_layer = self.current_layer
+                    self._client.callback("event_layer_change_external_camera")
                 else:
-                    LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, but no chamber image available")
+                    # Get chamber image for analysis (built-in camera)
+                    chamber_image = self._client._device.chamber_image.get_image()
+                    if chamber_image and len(chamber_image) > 0:
+                        LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, analyzing image ({len(chamber_image)} bytes)")
+                        self._client._device.spaghetti_detector.analyze_on_layer_change(chamber_image, self.current_layer)
+                    else:
+                        LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, but no chamber image available")
         
         self.ams_mapping = data.get("ams_mapping", self.ams_mapping)
         self._skipped_objects = data.get("s_obj", self._skipped_objects)
@@ -3558,6 +3566,11 @@ class SpaghettiDetector:
         self._rate_window_size = 5  # Calculate rate over last N layers
         self._rate_threshold = 0.10  # 10% increase over window = alert
         
+        # External camera support
+        self._external_camera_entity_id = ""  # Entity ID of external camera to use
+        self._external_image_callback = None  # Callback to fetch image from external entity
+        self._pending_external_layer = None  # Pending layer number for external camera analysis
+        
     def enable(self):
         """Enable spaghetti detection."""
         self._enabled = True
@@ -4033,6 +4046,43 @@ class SpaghettiDetector:
         if value >= 0:
             self._alert_cooldown_layers = value
             LOGGER.debug(f"Alert cooldown set to {value} layers")
+    
+    @property
+    def external_camera_entity_id(self) -> str:
+        """Get the external camera entity ID."""
+        return self._external_camera_entity_id
+    
+    def set_external_camera_entity_id(self, entity_id: str):
+        """Set the external camera entity ID for spaghetti detection.
+        
+        Args:
+            entity_id: Home Assistant entity ID of a camera or image entity to use
+                      instead of the built-in chamber camera. Leave empty to use
+                      the built-in camera.
+        """
+        self._external_camera_entity_id = entity_id.strip() if entity_id else ""
+        if self._external_camera_entity_id:
+            LOGGER.info(f"External camera entity set to: {self._external_camera_entity_id}")
+        else:
+            LOGGER.info("External camera entity cleared, using built-in chamber camera")
+    
+    def set_external_image_callback(self, callback):
+        """Set callback function to fetch image from external entity.
+        
+        Args:
+            callback: Async function that takes entity_id and returns image bytes
+        """
+        self._external_image_callback = callback
+    
+    def get_and_clear_pending_external_layer(self) -> int:
+        """Get and clear the pending external camera layer number.
+        
+        Returns:
+            The pending layer number, or None if no pending layer
+        """
+        layer = self._pending_external_layer
+        self._pending_external_layer = None
+        return layer
 
 
 @dataclass
