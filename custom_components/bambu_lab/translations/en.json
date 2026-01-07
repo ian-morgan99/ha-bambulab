@@ -358,6 +358,11 @@
         }
       }
     },
+    "text": {
+      "spaghetti_external_camera_entity_id": {
+        "name": "Spaghetti Detection External Camera Entity"
+      }
+    },
     "sensor": {
       "tool_module": {
         "name": "Tool module",

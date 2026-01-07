@@ -357,12 +357,113 @@ Different print types have different characteristics:
 - **Memory**: Minimal, images are not stored (only metrics)
 - **History**: Last 50 layers (configurable via `_max_history_size`)
 
+## External Camera Support
+
+If the built-in printer camera is not sufficient quality for spaghetti detection, you can configure an external camera to use instead.
+
+### Configuration
+
+**Entity ID**: `text.<printer_name>_spaghetti_external_camera_entity_id`
+
+**Purpose**: Specify a Home Assistant camera or image entity to use for spaghetti detection instead of the built-in chamber camera.
+
+**How to configure**:
+
+1. Set up your external camera in Home Assistant (e.g., ESP32-CAM, USB camera, IP camera)
+2. Ensure the camera has a clear view of the print bed
+3. Navigate to the Bambu Lab printer device in Home Assistant
+4. Find the "Spaghetti Detection External Camera Entity" text entity
+5. Enter the entity ID of your external camera (e.g., `camera.3d_printer_external_cam`)
+6. Leave empty to use the built-in chamber camera (default)
+
+### Supported Entity Types
+
+- **Camera entities** (`camera.*`): Standard camera entities with live image feeds
+- **Image entities** (`image.*`): Static image entities that update periodically
+
+### How it Works
+
+When an external camera entity ID is configured:
+
+1. **On layer change**: Instead of using the built-in chamber image, the system fetches the current image from the specified external entity
+2. **Image analysis**: The external image is processed through the same edge detection algorithm
+3. **Detection**: All spaghetti detection features work identically (thresholds, rate monitoring, alerts)
+
+### Best Practices
+
+1. **Camera positioning**: Position the external camera to have a similar view angle to the built-in camera for best results
+2. **Lighting**: Ensure consistent lighting on the print bed (the external camera may not benefit from the chamber lights)
+3. **Image quality**: Higher resolution cameras generally provide better detection accuracy
+4. **Update frequency**: Ensure your camera updates frequently enough to capture layer changes (typically every few seconds is sufficient)
+
+### Example Setup
+
+#### ESP32-CAM Example
+
+```yaml
+# configuration.yaml
+camera:
+  - platform: mjpeg
+    name: "3D Printer External Camera"
+    mjpeg_url: http://192.168.1.100:81/stream
+```
+
+Then set the entity ID: `camera.3d_printer_external_camera`
+
+#### Generic IP Camera Example
+
+```yaml
+# configuration.yaml
+camera:
+  - platform: generic
+    name: "Printer Bed Camera"
+    still_image_url: http://192.168.1.101/snapshot.jpg
+    stream_source: rtsp://192.168.1.101:554/stream
+```
+
+Then set the entity ID: `camera.printer_bed_camera`
+
+### Troubleshooting External Camera
+
+#### "External camera entity not found" in logs
+
+**Cause**: The entity ID entered is not valid or the entity doesn't exist.
+
+**Solution**:
+1. Check the entity ID is correct in Home Assistant (Developer Tools → States)
+2. Verify the camera is online and functioning
+3. Ensure you've entered the complete entity ID (e.g., `camera.my_camera`)
+
+#### "External camera entity is not a camera or image entity" in logs
+
+**Cause**: The entity ID points to a non-camera entity (e.g., sensor, switch).
+
+**Solution**:
+1. Verify the entity is actually a camera or image entity
+2. Check the entity domain in Developer Tools → States
+
+#### No images being analyzed from external camera
+
+**Cause**: Camera may not be updating or accessible.
+
+**Solution**:
+1. View the camera feed in Home Assistant to confirm it's working
+2. Check Home Assistant logs for errors fetching images
+3. Verify the camera updates frequently enough (check last_changed in Developer Tools → States)
+
+### Technical Details
+
+- **Image Format**: Accepts any image format supported by PIL/Pillow (JPEG, PNG, etc.)
+- **Async Fetching**: Image retrieval is asynchronous and doesn't block the MQTT thread
+- **Error Handling**: If external camera fetch fails, layer change is skipped (no fallback to built-in camera)
+- **Performance**: External camera fetching adds ~50-500ms depending on camera response time
+
 ### Limitations
 
-1. **Camera Required**: Only works with printers that have chamber image support
+1. **Camera Support**: Works with built-in chamber camera (P1P, P1S, A1, A1 Mini) or any configured external camera entity
 2. **Layer-based**: Only analyzes on layer changes, not continuous
 3. **Edge-based**: Detects structural changes, not all failure types
-4. **Lighting Dependent**: Consistent chamber lighting recommended
+4. **Lighting Dependent**: Consistent lighting recommended for best results
 5. **Post-failure**: Detects after failure started, cannot predict
 
 ## Future Enhancements

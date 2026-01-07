@@ -149,6 +149,9 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
 
         elif event == "event_printer_cover_image_update":
             self._update_data()
+        
+        elif event == "event_layer_change_external_camera":
+            self._handle_external_camera_layer_change()
 
         elif event == "event_printer_error":
             self._update_printer_error()
@@ -731,6 +734,81 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             event_data["error"] = device.print_error.error['error']
             LOGGER.debug(f"EVENT: print_error: {event_data}")
         self._hass.bus.async_fire(f"{DOMAIN}_event", event_data)
+    
+    def _handle_external_camera_layer_change(self):
+        """Handle layer change when external camera is configured."""
+        try:
+            detector = self.get_model().spaghetti_detector
+            entity_id = detector.external_camera_entity_id
+            layer = detector.get_and_clear_pending_external_layer()
+            
+            if not entity_id or layer is None:
+                LOGGER.debug("External camera layer change event but no entity ID or layer configured")
+                return
+            
+            LOGGER.debug(f"Handling external camera layer change: layer={layer}, entity_id={entity_id}")
+            
+            # Schedule async task to fetch image and analyze
+            asyncio.create_task(self._fetch_and_analyze_external_camera(entity_id, layer))
+        except Exception as e:
+            LOGGER.error(f"Error handling external camera layer change: {e}", exc_info=True)
+    
+    async def _fetch_and_analyze_external_camera(self, entity_id: str, layer: int):
+        """Fetch image from external camera entity and analyze it.
+        
+        Args:
+            entity_id: Home Assistant entity ID of the camera or image entity
+            layer: Current layer number
+        """
+        try:
+            # Get the entity state
+            state = self._hass.states.get(entity_id)
+            if not state:
+                LOGGER.error(f"External camera entity not found: {entity_id}")
+                return
+            
+            # Fetch image data from the entity
+            image_bytes = None
+            
+            # Try to get image from camera entity
+            if state.domain == "camera":
+                try:
+                    from homeassistant.components.camera import async_get_image as async_get_camera_image
+                    image = await async_get_camera_image(self._hass, entity_id)
+                    if image:
+                        image_bytes = image.content
+                except Exception as e:
+                    LOGGER.error(f"Error fetching image from camera entity {entity_id}: {e}")
+            
+            # Try to get image from image entity
+            elif state.domain == "image":
+                # For image entities, the image data is typically stored as an attribute or accessible via the entity
+                try:
+                    from homeassistant.components.image import async_get_image as async_get_image_entity
+                    image = await async_get_image_entity(self._hass, entity_id)
+                    if image:
+                        image_bytes = image.content
+                except Exception as e:
+                    LOGGER.error(f"Error fetching image from image entity {entity_id}: {e}")
+            
+            else:
+                LOGGER.error(f"External camera entity {entity_id} is not a camera or image entity (domain: {state.domain})")
+                return
+            
+            if not image_bytes or len(image_bytes) == 0:
+                LOGGER.warning(f"No image data retrieved from external camera entity {entity_id}")
+                return
+            
+            LOGGER.debug(f"Retrieved {len(image_bytes)} bytes from external camera {entity_id} for layer {layer}")
+            
+            # Analyze the image using the spaghetti detector
+            # The analyze_on_layer_change method accepts bytearray, so convert if needed
+            detector = self.get_model().spaghetti_detector
+            image_data = image_bytes if isinstance(image_bytes, bytearray) else bytearray(image_bytes)
+            detector.analyze_on_layer_change(image_data, layer)
+            
+        except Exception as e:
+            LOGGER.error(f"Error fetching and analyzing external camera image: {e}", exc_info=True)
 
     def _update_device_info(self):
         if not self._updatedDevice:
