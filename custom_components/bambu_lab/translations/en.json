@@ -356,11 +356,14 @@
           "sport": "Sport",
           "ludicrous": "Ludicrous"
         }
+      },
+      "spaghetti_external_camera": {
+        "name": "Spaghetti Detection Camera"
       }
     },
     "text": {
       "spaghetti_external_camera_entity_id": {
-        "name": "Spaghetti Detection External Camera Entity"
+        "name": "Spaghetti Detection External Camera Entity (Deprecated)"
       }
     },
     "sensor": {

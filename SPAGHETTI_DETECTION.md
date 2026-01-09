@@ -363,18 +363,20 @@ If the built-in printer camera is not sufficient quality for spaghetti detection
 
 ### Configuration
 
-**Entity ID**: `text.<printer_name>_spaghetti_external_camera_entity_id`
+**Entity ID**: `select.<printer_name>_external_camera`
 
-**Purpose**: Specify a Home Assistant camera or image entity to use for spaghetti detection instead of the built-in chamber camera.
+**Purpose**: Select a Home Assistant camera or image entity to use for spaghetti detection instead of the built-in chamber camera.
 
 **How to configure**:
 
 1. Set up your external camera in Home Assistant (e.g., ESP32-CAM, USB camera, IP camera)
 2. Ensure the camera has a clear view of the print bed
 3. Navigate to the Bambu Lab printer device in Home Assistant
-4. Find the "Spaghetti Detection External Camera Entity" text entity
-5. Enter the entity ID of your external camera (e.g., `camera.3d_printer_external_cam`)
-6. Leave empty to use the built-in chamber camera (default)
+4. Find the "Spaghetti Detection Camera" select entity
+5. Choose from the dropdown:
+   - **Built-in Chamber Camera** (default) - Uses the printer's internal camera
+   - Any configured camera or image entity from your Home Assistant installation
+6. The dropdown automatically includes all available `camera.*` and `image.*` entities
 
 ### Supported Entity Types
 
@@ -383,11 +385,13 @@ If the built-in printer camera is not sufficient quality for spaghetti detection
 
 ### How it Works
 
-When an external camera entity ID is configured:
+When an external camera is selected:
 
 1. **On layer change**: Instead of using the built-in chamber image, the system fetches the current image from the specified external entity
 2. **Image analysis**: The external image is processed through the same edge detection algorithm
 3. **Detection**: All spaghetti detection features work identically (thresholds, rate monitoring, alerts)
+
+**Note**: The spaghetti detection algorithm runs on every layer change during printing, using whichever camera is selected (built-in or external).
 
 ### Best Practices
 
@@ -408,7 +412,7 @@ camera:
     mjpeg_url: http://192.168.1.100:81/stream
 ```
 
-Then set the entity ID: `camera.3d_printer_external_camera`
+Then select `camera.3d_printer_external_camera` from the dropdown.
 
 #### Generic IP Camera Example
 
@@ -421,26 +425,37 @@ camera:
     stream_source: rtsp://192.168.1.101:554/stream
 ```
 
-Then set the entity ID: `camera.printer_bed_camera`
+Then select `camera.printer_bed_camera` from the dropdown.
 
 ### Troubleshooting External Camera
 
+#### Camera not appearing in dropdown
+
+**Cause**: The camera may not be properly configured or loaded in Home Assistant.
+
+**Solution**:
+1. Check that the camera entity exists in Developer Tools → States
+2. Verify the camera is online and functioning
+3. Restart Home Assistant if the camera was just added
+4. The dropdown refreshes when you open it, so it will show newly added cameras
+
 #### "External camera entity not found" in logs
 
-**Cause**: The entity ID entered is not valid or the entity doesn't exist.
+**Cause**: The entity ID selected no longer exists or was removed.
 
 **Solution**:
 1. Check the entity ID is correct in Home Assistant (Developer Tools → States)
 2. Verify the camera is online and functioning
-3. Ensure you've entered the complete entity ID (e.g., `camera.my_camera`)
+3. Select a different camera from the dropdown or revert to "Built-in Chamber Camera"
 
 #### "External camera entity is not a camera or image entity" in logs
 
-**Cause**: The entity ID points to a non-camera entity (e.g., sensor, switch).
+**Cause**: The selected entity is not a camera or image type.
 
 **Solution**:
-1. Verify the entity is actually a camera or image entity
-2. Check the entity domain in Developer Tools → States
+1. The dropdown should only show valid camera and image entities
+2. If you see this error, the entity may have changed type after being selected
+3. Select a different camera from the dropdown or revert to "Built-in Chamber Camera"
 
 #### No images being analyzed from external camera
 

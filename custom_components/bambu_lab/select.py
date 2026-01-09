@@ -25,9 +25,16 @@ async def async_setup_entry(
         return
     
     LOGGER.debug("SELECT::async_setup_entry")
+    entities = []
+    
     # Unsure if hybrid mode also blocks speed control.
     if not coordinator.get_model().print_fun.mqtt_signature_required:
-        async_add_entities( [ BambuLabSpeedSelect(coordinator) ] )
+        entities.append(BambuLabSpeedSelect(coordinator))
+    
+    # Add external camera select for spaghetti detection
+    entities.append(BambuLabExternalCameraSelect(coordinator, hass))
+    
+    async_add_entities(entities)
 
 
 class BambuLabSpeedSelect(BambuLabEntity, SelectEntity):
@@ -58,3 +65,78 @@ class BambuLabSpeedSelect(BambuLabEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         """Set print speed."""
         self.coordinator.get_model().speed.SetSpeed(option)
+
+
+class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
+    """External camera select for spaghetti detection."""
+
+    _attr_icon = "mdi:camera-plus"
+    _attr_translation_key = "spaghetti_external_camera"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: BambuDataUpdateCoordinator, hass: HomeAssistant) -> None:
+        """Initialize External Camera Select."""
+        super().__init__(coordinator=coordinator)
+        self._hass = hass
+        printer = self.coordinator.get_model().info
+        self._attr_unique_id = f"{printer.serial}_external_camera"
+        
+        # Start with minimal options - will be populated lazily
+        self._attr_options = ["Built-in Chamber Camera"]
+        self._options_loaded = False
+
+    def _update_options(self) -> None:
+        """Update the list of available camera options."""
+        # Get all camera and image entities from Home Assistant
+        camera_entities = []
+        if self._hass and self._hass.states:
+            for state in self._hass.states.async_all():
+                if state.domain in ["camera", "image"]:
+                    camera_entities.append(state.entity_id)
+        
+        # Sort camera entities and prepend built-in option
+        self._attr_options = ["Built-in Chamber Camera"] + sorted(camera_entities)
+        self._options_loaded = True
+
+    @property
+    def options(self) -> list[str]:
+        """Return the list of available options."""
+        # Lazy load options on first access
+        if not self._options_loaded:
+            self._update_options()
+        return self._attr_options
+    
+    def refresh_options(self) -> None:
+        """Refresh the list of available camera options.
+        
+        This can be called to update the options list if cameras are added/removed.
+        """
+        self._update_options()
+
+    @property
+    def current_option(self) -> str:
+        """Return the current selected camera."""
+        # Ensure options are loaded/updated before validating the stored entity
+        available_options = self.options
+        external_camera = self.coordinator.get_model().spaghetti_detector.external_camera_entity_id
+        
+        # Validate that the external camera is still in the available options
+        if external_camera and external_camera in available_options:
+            return external_camera
+        
+        # If external camera is set but not available, log warning and return built-in
+        if external_camera:
+            LOGGER.warning("External camera entity '%s' is no longer available, falling back to built-in camera", external_camera)
+        
+        return "Built-in Chamber Camera"
+
+    async def async_select_option(self, option: str) -> None:
+        """Set the external camera."""
+        if option == "Built-in Chamber Camera":
+            # Clear external camera to use built-in
+            self.coordinator.get_model().spaghetti_detector.set_external_camera_entity_id("")
+        else:
+            # Set the selected camera entity
+            self.coordinator.get_model().spaghetti_detector.set_external_camera_entity_id(option)
+        
+        self.async_write_ha_state()
