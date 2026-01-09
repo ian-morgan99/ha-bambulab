@@ -3962,8 +3962,8 @@ class SpaghettiDetector:
     
     def start_monitoring(self):
         """Start monitoring print for spaghetti detection."""
-        self._monitoring_active = True
         self.reset()  # Clear any previous state
+        self._monitoring_active = True
         LOGGER.info("Spaghetti detection monitoring started")
     
     def stop_monitoring(self):
