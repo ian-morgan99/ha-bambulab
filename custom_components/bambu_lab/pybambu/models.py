@@ -2353,8 +2353,14 @@ class PrintJob:
             for path in search_paths:
                 try:
                     LOGGER.debug(f"Searching for videos in {path}")
-                    ftp.retrlines(f"LIST {path}", lambda line: parse_line(line, path))
-                    searched_paths.append(path)
+                    # Change to the target directory and list its contents without embedding the path
+                    safe_path = path
+                    ftp.cwd(safe_path)
+                    ftp.retrlines(
+                        "LIST",
+                        lambda line, current_path=safe_path: parse_line(line, current_path),
+                    )
+                    searched_paths.append(safe_path)
                 except Exception as e:
                     LOGGER.debug(f"Error listing {path}: {e}")
                     failed_paths.append(path)
