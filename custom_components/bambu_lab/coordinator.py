@@ -852,10 +852,11 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             LOGGER.debug(f"Incognito mode: Scheduling cleanup for '{print_filename}'")
             
             # Run the cleanup in a separate thread to avoid blocking the event loop
+            # Use non-daemon thread to ensure cleanup completes even during shutdown
             cleanup_thread = threading.Thread(
                 target=self.client.delete_print_files_via_ftp,
                 args=(print_filename,),
-                daemon=True
+                daemon=False
             )
             cleanup_thread.start()
             

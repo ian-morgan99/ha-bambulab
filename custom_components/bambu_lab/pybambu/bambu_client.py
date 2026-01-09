@@ -727,6 +727,8 @@ class BambuClient:
                     LOGGER.debug(f"Incognito mode: Searching {directory} for files to delete")
                     
                     # List files in the directory
+                    # Note: Using LIST instead of MLSD for compatibility with all FTP servers
+                    # and consistency with existing codebase patterns
                     file_list = []
                     try:
                         ftp.retrlines(f"LIST {directory}", lambda line: file_list.append(line))
