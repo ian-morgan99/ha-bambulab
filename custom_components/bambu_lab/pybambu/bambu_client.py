@@ -708,15 +708,12 @@ class BambuClient:
         
         LOGGER.info(f"Incognito mode: Starting file cleanup for print '{print_filename}'")
         
+        ftp = None
         try:
             ftp = self.ftp_connection()
             
-            # Extract base filename without extension
-            base_filename = os.path.splitext(print_filename)[0]
-            
-            # Remove any path components to get just the filename
-            if '/' in base_filename:
-                base_filename = base_filename.split('/')[-1]
+            # Extract base filename without extension and remove path components
+            base_filename = os.path.splitext(os.path.basename(print_filename))[0]
             
             # Directories to search for files
             # Include root directory and cache, plus timelapse and thumbnail subdirectories
@@ -745,10 +742,17 @@ class BambuClient:
                             filename = ' '.join(parts[8:])  # Handle filenames with spaces
                             
                             # Check if the file is related to this print
-                            # Use more specific matching: filename must start with base_filename
-                            # This avoids matching "my_model.3mf" when looking for "model"
+                            # Extract filename without extension for comparison
                             filename_without_ext = os.path.splitext(filename)[0]
-                            if filename_without_ext == base_filename or filename.startswith(f"{base_filename}."):
+                            
+                            # Match if:
+                            # 1. Exact match of base filename (e.g., "model" matches "model.3mf")
+                            # 2. Starts with base_filename followed by underscore or dash
+                            #    (e.g., "model" matches "model_plate_1.gcode" or "model-thumbnail.jpg")
+                            if (filename_without_ext == base_filename or 
+                                filename_without_ext.startswith(f"{base_filename}_") or
+                                filename_without_ext.startswith(f"{base_filename}-")):
+                                
                                 # Construct path properly to handle root directory
                                 if directory == '/':
                                     file_path = f"/{filename}"
@@ -769,8 +773,6 @@ class BambuClient:
                 except Exception as e:
                     LOGGER.debug(f"Incognito mode: Error accessing directory {directory}: {type(e)} {e}")
             
-            ftp.quit()
-            
             if deleted_files:
                 LOGGER.info(f"Incognito mode: Successfully deleted {len(deleted_files)} file(s)")
             if failed_deletions:
@@ -778,6 +780,13 @@ class BambuClient:
                 
         except Exception as e:
             LOGGER.error(f"Incognito mode: Failed to connect to FTP or cleanup files: {type(e)} {e}")
+        finally:
+            # Ensure FTP connection is properly closed
+            if ftp is not None:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass
 
     async def try_connection(self):
         """Test if we can connect to an MQTT broker."""
