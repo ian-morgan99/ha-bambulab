@@ -714,8 +714,13 @@ class BambuClient:
             # Extract base filename without extension
             base_filename = os.path.splitext(print_filename)[0]
             
+            # Remove any path components to get just the filename
+            if '/' in base_filename:
+                base_filename = base_filename.split('/')[-1]
+            
             # Directories to search for files
-            search_dirs = ['/cache', '/timelapse']
+            # Include root directory and cache, plus timelapse and thumbnail subdirectories
+            search_dirs = ['/', '/cache', '/timelapse', '/timelapse/thumbnail']
             
             deleted_files = []
             failed_deletions = []
@@ -726,7 +731,11 @@ class BambuClient:
                     
                     # List files in the directory
                     file_list = []
-                    ftp.retrlines(f"LIST {directory}", lambda line: file_list.append(line))
+                    try:
+                        ftp.retrlines(f"LIST {directory}", lambda line: file_list.append(line))
+                    except ftplib.error_perm:
+                        # Directory might not exist or be accessible
+                        continue
                     
                     for line in file_list:
                         # Parse FTP LIST output to extract filename
@@ -736,8 +745,8 @@ class BambuClient:
                             filename = ' '.join(parts[8:])  # Handle filenames with spaces
                             
                             # Check if the file is related to this print
-                            # Match: base_filename.* or files containing base_filename
-                            if base_filename in filename or filename.startswith(base_filename):
+                            # Match files that start with base_filename or contain it
+                            if filename.startswith(base_filename) or base_filename in filename:
                                 file_path = f"{directory}/{filename}"
                                 try:
                                     LOGGER.info(f"Incognito mode: Deleting {file_path}")
@@ -750,10 +759,8 @@ class BambuClient:
                                     LOGGER.error(f"Incognito mode: Unexpected error deleting {file_path}: {type(e)} {e}")
                                     failed_deletions.append(file_path)
                 
-                except ftplib.error_perm as e:
-                    LOGGER.debug(f"Incognito mode: Cannot access directory {directory}: {e}")
                 except Exception as e:
-                    LOGGER.error(f"Incognito mode: Error listing directory {directory}: {type(e)} {e}")
+                    LOGGER.debug(f"Incognito mode: Error accessing directory {directory}: {type(e)} {e}")
             
             ftp.quit()
             
