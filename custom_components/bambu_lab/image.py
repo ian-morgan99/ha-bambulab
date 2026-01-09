@@ -167,7 +167,7 @@ class SpaghettiLastImage(ImageEntity, BambuLabEntity):
     ) -> None:
         """Initialize the image entity."""
         super().__init__(hass=hass)
-        super(BambuLabEntity, self).__init__(coordinator=coordinator)
+        BambuLabEntity.__init__(self, coordinator=coordinator)
         self._attr_content_type = "image/jpeg"
         self._image_filename = None
         self.entity_description = description
@@ -194,5 +194,5 @@ class SpaghettiLastImage(ImageEntity, BambuLabEntity):
         """Return extra attributes."""
         return {
             "layer_number": self.coordinator.get_model().spaghetti_detector.last_analyzed_layer,
-            "edge_density": round(self.coordinator.get_model().spaghetti_detector.current_edge_density, 4),
+            "edge_density": round(self.coordinator.get_model().spaghetti_detector.last_analyzed_edge_density, 4),
         }

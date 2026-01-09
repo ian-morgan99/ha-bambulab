@@ -291,13 +291,14 @@ hours_to_show: 2
 1. **Run Test**:
    - Press `button.<printer_name>_test_spaghetti_detection`
    - The system analyzes the current live camera image from the streaming feed
+   - **Note**: The streaming feed is available whenever the printer is powered on and connected, regardless of whether a print is running
    - Wait for the notification with results
 
 2. **Interpret Results**:
    - Check the edge density value
    - Compare against interpretation guidelines
    - View the analyzed frame to see what was detected
-   - Note the current layer information for context
+   - Note the current layer information for context (will show 0/0 when no print is active)
 
 3. **Repeat as Needed**:
    - Run the test at different times during a print

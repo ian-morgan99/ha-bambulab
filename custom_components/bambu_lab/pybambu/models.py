@@ -3700,6 +3700,7 @@ class SpaghettiDetector:
         self._last_analyzed_image = bytearray()  # Store last image used for detection
         self._last_analyzed_timestamp = None  # Timestamp of last analysis
         self._last_analyzed_layer_num = 0  # Layer number of last analysis
+        self._last_analyzed_edge_density = 0.0  # Edge density of last analysis
         
         # Pause on spaghetti detection
         self._pause_on_spaghetti = False  # Whether to pause print on detection
@@ -3747,15 +3748,11 @@ class SpaghettiDetector:
         self._external_previous_edge_density = 0.0
         self._internal_layers_since_baseline = 0
         self._external_layers_since_baseline = 0
-        LOGGER.debug("Spaghetti detector reset")
-        self._internal_layer_history = []
-        self._external_layer_history = []
-        self._internal_baseline_edge_map = None
-        self._external_baseline_edge_map = None
-        self._internal_previous_edge_density = 0.0
-        self._external_previous_edge_density = 0.0
-        self._internal_layers_since_baseline = 0
-        self._external_layers_since_baseline = 0
+        # Reset last analyzed image data to avoid stale information across prints
+        self._last_analyzed_image = bytearray()
+        self._last_analyzed_timestamp = None
+        self._last_analyzed_layer_num = 0
+        self._last_analyzed_edge_density = 0.0
         LOGGER.debug("Spaghetti detector reset")
         
     def _convert_to_grayscale(self, image_bytes: bytearray) -> Image.Image:
@@ -4073,10 +4070,11 @@ class SpaghettiDetector:
             self._internal_layers_since_baseline = new_layers_since
             self._internal_layer_history = updated_history
             
-            # Save last analyzed image
+            # Save last analyzed image with its edge density
             self._last_analyzed_image = image_bytes.copy() if image_bytes else bytearray()
             self._last_analyzed_timestamp = datetime.now()
             self._last_analyzed_layer_num = current_layer
+            self._last_analyzed_edge_density = current_density
             
             # Reset consecutive alert counter if no anomaly detected
             if not anomaly:
@@ -4369,6 +4367,11 @@ class SpaghettiDetector:
     def last_analyzed_layer(self) -> int:
         """Return the layer number of the last analyzed image."""
         return self._last_analyzed_layer_num
+    
+    @property
+    def last_analyzed_edge_density(self) -> float:
+        """Return the edge density of the last analyzed image."""
+        return self._last_analyzed_edge_density
     
     @property
     def pause_on_spaghetti(self) -> bool:
