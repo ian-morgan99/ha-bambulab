@@ -19,20 +19,31 @@ ha core restart
 
 ## Changes Made
 
-### 1. Added `/ipcam` and `/image` Folders to Search Paths
+### 1. Dynamic FTP Directory Discovery
 
 **Files Modified**: `custom_components/bambu_lab/pybambu/models.py`
 
 **Changes**:
-- Updated `_sync_get_last_video_frame()` to search folders in order: `/ipcam`, `/image`, `/timelapse`, `/cache`, `/`
-- Updated `_sync_get_last_image()` to search folders in order: `/ipcam`, `/image`, `/timelapse`, `/cache`, `/`
-- Prioritized `/ipcam` for active recordings during prints
-- Added `/image` folder where some printers store snapshots
-- Falls back to `/timelapse` and `/cache` if files not found in priority folders
+- Added `_discover_ftp_directories()` function to automatically detect available folders on the FTP server
+- Replaced hardcoded search paths with dynamic discovery
+- Updated `_sync_get_last_video_frame()` to use discovered directories
+- Updated `_sync_get_last_image()` to use discovered directories
+- Maintains intelligent priority order: `/ipcam`, `/image`, `/timelapse`, `/cache`, then `/`
+- Only searches directories that actually exist on the printer
 
 **Why**: 
+- Different printer models and firmware versions have different folder structures
+- Hardcoded paths would fail on printers that don't have certain folders
+- Dynamic discovery adapts to any printer configuration
 - The "Get Last Frame" button was retrieving old videos from `/timelapse` instead of current recordings from `/ipcam`
 - PNG files stored in `/image` folder were not being found
+
+**How it works**:
+1. When searching for images/videos, first queries FTP root directory
+2. Identifies which known folders exist (`/ipcam`, `/image`, `/timelapse`, `/cache`)
+3. Creates search path list with only existing folders, in priority order
+4. Falls back to root `/` directory if no known folders found
+5. Logs discovered directories for debugging
 
 ### 2. Improved Error Logging for FTPS
 
@@ -47,8 +58,11 @@ ha core restart
 
 **Understanding the New Error Messages**:
 - Old: `No image files found in /timelapse, /cache, /`
-- New: `No image files found in /ipcam, /image, /timelapse, /cache (Failed to access: /)`
-- The new message shows which paths were successfully searched and which failed
+- New: `No image files found in /ipcam, /image, /timelapse (Failed to access: /cache)`
+- The new message shows:
+  - Which paths were successfully searched (folders that exist and were readable)
+  - Which paths failed to access (folders that don't exist or had permission issues)
+  - Only discovered folders are included in the search
 - If you still see the old message format, you need to restart Home Assistant
 
 ### 3. External Camera Dropdown Selector
@@ -77,14 +91,18 @@ ha core restart
 
 ## How to Test
 
-### Testing /ipcam Folder Access
+### Testing Dynamic Directory Discovery
 
 1. Press the "Get Last Frame" button (`button.<printer_name>_get_last_frame`)
 2. Check the notification for the video path
 3. Check Home Assistant logs for messages like:
+   - `Discovered FTP directory: /ipcam`
+   - `Discovered FTP directory: /image`
+   - `FTP directory search order: ['/ipcam', '/image', '/timelapse', '/cache', '/']`
    - `Searching for videos in /ipcam`
-   - `Successfully searched: /ipcam, /timelapse, /cache`
-   - Or `Failed to access: /ipcam` if folder doesn't exist
+   - `Successfully searched: /ipcam, /image, /timelapse`
+   - Or `Failed to access: /cache` if folder doesn't exist
+4. The discovered directories will vary based on your printer model and firmware
 
 ### Testing External Camera Dropdown
 
@@ -110,17 +128,18 @@ The old text entity (`text.<printer_name>_spaghetti_external_camera_entity_id`) 
 
 When you have an active print running with an external camera (e.g., ESP32-CAM) configured:
 
-1. During printing, videos/images are recorded to `/ipcam` and/or `/image` folders
-2. "Get Last Frame" button searches folders in priority order: `/ipcam` → `/image` → `/timelapse` → `/cache` → `/`
-3. Retrieves the most recent file from the first folder that has matching files
-4. On each layer change, spaghetti detection fetches image from selected camera (external or built-in)
+1. FTP directory discovery runs first to detect available folders
+2. During printing, videos/images are recorded to `/ipcam` and/or `/image` folders (if they exist)
+3. "Get Last Frame" button searches discovered folders in priority order (typically: `/ipcam` → `/image` → `/timelapse` → `/cache` → `/`)
+4. Retrieves the most recent file from the first discovered folder that has matching files
+5. On each layer change, spaghetti detection fetches image from selected camera (external or built-in)
 
 ### After Print Completes
 
-1. Videos are moved from `/ipcam` to `/timelapse` folder
+1. Videos are typically moved from `/ipcam` to `/timelapse` folder (printer behavior varies)
 2. Images may remain in `/image` folder or be archived to `/timelapse`
-2. "Get Last Frame" will find the video in `/timelapse`
-3. This is normal behavior - the video is no longer being written
+3. "Get Last Frame" will find the video in whichever folder it currently exists
+4. This is normal behavior - discovery adapts to where files are located
 
 ## Notes on File Access
 
