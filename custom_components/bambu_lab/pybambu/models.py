@@ -3714,7 +3714,8 @@ class SpaghettiDetector:
             if is_printing and not self._monitoring_active:
                 self.start_monitoring()
                 LOGGER.info("Spaghetti detection enabled during active print - monitoring started")
-        except Exception as e:
+        except (AttributeError, TypeError) as e:
+            # print_job or gcode_state might not be available yet during initialization
             LOGGER.debug(f"Could not check print state when enabling spaghetti detection: {e}")
         
     def disable(self):
