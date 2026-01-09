@@ -662,6 +662,12 @@
       "spaghetti_edge_density": {
         "name": "Spaghetti Edge Density"
       },
+      "spaghetti_edge_density_internal": {
+        "name": "Spaghetti Edge Density (Internal Camera)"
+      },
+      "spaghetti_edge_density_external": {
+        "name": "Spaghetti Edge Density (External Camera)"
+      },
       "spaghetti_test_result": {
         "name": "Spaghetti Test Result"
       },
@@ -918,6 +924,9 @@
       },
       "spaghetti_detection": {
         "name": "Spaghetti Detection"
+      },
+      "spaghetti_use_internal_camera": {
+        "name": "Use Internal Camera for Spaghetti Detection"
       }
     },
     "update": {

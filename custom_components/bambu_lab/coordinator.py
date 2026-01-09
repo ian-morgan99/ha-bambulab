@@ -801,11 +801,14 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             
             LOGGER.debug(f"Retrieved {len(image_bytes)} bytes from external camera {entity_id} for layer {layer}")
             
-            # Analyze the image using the spaghetti detector
-            # The analyze_on_layer_change method accepts bytearray, so convert if needed
+            # Analyze the image using the spaghetti detector's external camera method
             detector = self.get_model().spaghetti_detector
             image_data = image_bytes if isinstance(image_bytes, bytearray) else bytearray(image_bytes)
-            detector.analyze_on_layer_change(image_data, layer)
+            external_alert = detector.analyze_external_camera_on_layer_change(image_data, layer)
+            
+            # Trigger alert if detected
+            if external_alert:
+                detector.trigger_alert()
             
         except Exception as e:
             LOGGER.error(f"Error fetching and analyzing external camera image: {e}", exc_info=True)

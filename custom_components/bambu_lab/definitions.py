@@ -677,7 +677,43 @@ PRINTER_SENSORS: tuple[BambuLabSensorEntityDescription, ...] = (
             "history_size": len(self.coordinator.get_model().spaghetti_detector.layer_history),
             "current_layer": self.coordinator.get_model().print_job.current_layer,
             "total_layers": self.coordinator.get_model().print_job.total_layers,
+            "internal_edge_density": round(self.coordinator.get_model().spaghetti_detector.internal_edge_density, 4),
+            "external_edge_density": round(self.coordinator.get_model().spaghetti_detector.external_edge_density, 4),
         }
+    ),
+    BambuLabSensorEntityDescription(
+        key="spaghetti_edge_density_internal",
+        translation_key="spaghetti_edge_density_internal",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:camera",
+        suggested_display_precision=4,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.internal_edge_density,
+        extra_attributes=lambda self: {
+            "average_edge_density": round(self.coordinator.get_model().spaghetti_detector.internal_average_edge_density, 4),
+            "history_size": len(self.coordinator.get_model().spaghetti_detector.internal_layer_history),
+            "current_layer": self.coordinator.get_model().print_job.current_layer,
+            "total_layers": self.coordinator.get_model().print_job.total_layers,
+            "camera_source": "internal",
+        }
+    ),
+    BambuLabSensorEntityDescription(
+        key="spaghetti_edge_density_external",
+        translation_key="spaghetti_edge_density_external",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:camera-plus",
+        suggested_display_precision=4,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.external_edge_density,
+        extra_attributes=lambda self: {
+            "average_edge_density": round(self.coordinator.get_model().spaghetti_detector.external_average_edge_density, 4),
+            "history_size": len(self.coordinator.get_model().spaghetti_detector.external_layer_history),
+            "current_layer": self.coordinator.get_model().print_job.current_layer,
+            "total_layers": self.coordinator.get_model().print_job.total_layers,
+            "camera_source": "external",
+            "camera_entity_id": self.coordinator.get_model().spaghetti_detector.external_camera_entity_id,
+        },
+        available_fn=lambda self: bool(self.coordinator.get_model().spaghetti_detector.external_camera_entity_id)
     ),
     BambuLabSensorEntityDescription(
         key="spaghetti_test_result",

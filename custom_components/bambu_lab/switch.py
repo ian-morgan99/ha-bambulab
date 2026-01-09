@@ -59,6 +59,13 @@ SPAGHETTI_DETECTION_SWITCH_DESCRIPTION = SwitchEntityDescription(
     entity_category=EntityCategory.CONFIG,
 )
 
+SPAGHETTI_USE_INTERNAL_CAMERA_SWITCH_DESCRIPTION = SwitchEntityDescription(
+    key="spaghetti_use_internal_camera",
+    icon="mdi:camera",
+    translation_key="spaghetti_use_internal_camera",
+    entity_category=EntityCategory.CONFIG,
+)
+
 INCOGNITO_MODE_SWITCH_DESCRIPTION = SwitchEntityDescription(
     key="incognito_mode",
     icon="mdi:incognito",
@@ -96,6 +103,7 @@ async def async_setup_entry(
     if coordinator.get_model().supports_feature(Features.CAMERA_IMAGE):
         async_add_entities([BambuLabCameraImageSwitch(coordinator, entry)])
         async_add_entities([BambuLabSpaghettiDetectionSwitch(coordinator, entry)])
+        async_add_entities([BambuLabSpaghettiUseInternalCameraSwitch(coordinator, entry)])
 
     if not coordinator.get_model().print_fun.mqtt_signature_required:
         if coordinator.get_model().supports_feature(Features.PROMPT_SOUND):
@@ -298,6 +306,65 @@ class BambuLabSpaghettiDetectionSwitch(BambuLabSwitch):
             LOGGER.error(f"Spaghetti detector not available: {e}")
         except Exception as e:
             LOGGER.error(f"Unexpected error disabling spaghetti detection: {e}", exc_info=True)
+
+
+class BambuLabSpaghettiUseInternalCameraSwitch(BambuLabSwitch):
+    """BambuLab Spaghetti Use Internal Camera Switch"""
+
+    entity_description = SPAGHETTI_USE_INTERNAL_CAMERA_SWITCH_DESCRIPTION
+
+    def __init__(
+            self,
+            coordinator: BambuDataUpdateCoordinator,
+            config_entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, config_entry)
+        try:
+            self._attr_is_on = self.coordinator.get_model().spaghetti_detector.use_internal_camera
+        except AttributeError as e:
+            LOGGER.warning(f"Spaghetti detector not available: {e}")
+            self._attr_is_on = True
+        except Exception as e:
+            LOGGER.error(f"Unexpected error initializing internal camera switch: {e}", exc_info=True)
+            self._attr_is_on = True
+        
+    @property
+    def icon(self) -> str:
+        """Return the icon for the switch."""
+        return "mdi:camera" if self.is_on else "mdi:camera-off"
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if entity is on."""
+        try:
+            return self.coordinator.get_model().spaghetti_detector.use_internal_camera
+        except AttributeError:
+            return self._attr_is_on
+        except Exception as e:
+            LOGGER.error(f"Unexpected error checking internal camera state: {e}", exc_info=True)
+            return self._attr_is_on
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable internal camera for spaghetti detection."""
+        try:
+            self.coordinator.get_model().spaghetti_detector.set_use_internal_camera(True)
+            self._attr_is_on = True
+            self.async_write_ha_state()
+        except AttributeError as e:
+            LOGGER.error(f"Spaghetti detector not available: {e}")
+        except Exception as e:
+            LOGGER.error(f"Unexpected error enabling internal camera: {e}", exc_info=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable internal camera for spaghetti detection."""
+        try:
+            self.coordinator.get_model().spaghetti_detector.set_use_internal_camera(False)
+            self._attr_is_on = False
+            self.async_write_ha_state()
+        except AttributeError as e:
+            LOGGER.error(f"Spaghetti detector not available: {e}")
+        except Exception as e:
+            LOGGER.error(f"Unexpected error disabling internal camera: {e}", exc_info=True)
 
 
 class BambuLabFTPSSwitch(BambuLabSwitch):
