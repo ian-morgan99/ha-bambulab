@@ -737,10 +737,14 @@ class BambuClient:
                         continue
                     
                     for line in file_list:
-                        # Parse FTP LIST output to extract filename
-                        # Format: -rw-r--r-- 1 user group size date time filename
-                        parts = line.split()
-                        if len(parts) >= 9:
+                        try:
+                            # Parse FTP LIST output to extract filename
+                            # Format: -rw-r--r-- 1 user group size date time filename
+                            parts = line.split()
+                            if len(parts) < 9:
+                                # Unexpected format, skip this line
+                                continue
+                            
                             filename = ' '.join(parts[8:])  # Handle filenames with spaces
                             
                             # Check if the file is related to this print
@@ -771,6 +775,9 @@ class BambuClient:
                                 except Exception as e:
                                     LOGGER.error(f"Incognito mode: Unexpected error deleting {file_path}: {type(e)} {e}")
                                     failed_deletions.append(file_path)
+                        except Exception as e:
+                            # Skip lines that can't be parsed
+                            LOGGER.debug(f"Incognito mode: Could not parse FTP LIST line: {line[:50]}... Error: {e}")
                 
                 except Exception as e:
                     LOGGER.debug(f"Incognito mode: Error accessing directory {directory}: {type(e)} {e}")
