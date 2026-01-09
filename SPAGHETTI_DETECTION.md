@@ -53,7 +53,7 @@ The system uses edge detection algorithms to identify sudden changes in the prin
 #### Spaghetti Edge Density
 **Entity ID**: `sensor.<printer_name>_spaghetti_edge_density`
 
-**Value**: Current edge density (0.0 to 1.0)
+**Value**: Current edge density (0.0 to 1.0) - Combined/Primary value
 
 **Attributes**:
 - `average_edge_density`: Average across all monitored layers
@@ -61,12 +61,47 @@ The system uses edge detection algorithms to identify sudden changes in the prin
 - `history_size`: Number of layers in history
 - `current_layer`: Current layer number
 - `total_layers`: Total layers in the print
+- `internal_edge_density`: Current edge density from internal camera
+- `external_edge_density`: Current edge density from external camera
 
 **Interpretation**:
 - **< 0.05**: Few edges, simple or empty scene
 - **0.05-0.15**: Typical print with clean edges (normal range)
 - **0.15-0.25**: Complex structure or potential early issues
 - **> 0.25**: High likelihood of spaghetti or major failure
+
+#### Spaghetti Edge Density (Internal Camera)
+**Entity ID**: `sensor.<printer_name>_spaghetti_edge_density_internal`
+
+**Value**: Current edge density from internal camera (0.0 to 1.0)
+
+**Attributes**:
+- `average_edge_density`: Average edge density from internal camera
+- `history_size`: Number of layers tracked for internal camera
+- `current_layer`: Current layer number
+- `total_layers`: Total layers in the print
+- `camera_source`: "internal"
+
+**Purpose**: Track edge density specifically from the internal (built-in) chamber camera. This sensor allows you to monitor and graph the internal camera's edge density values separately from external camera data.
+
+**Availability**: Always available when internal camera is enabled.
+
+#### Spaghetti Edge Density (External Camera)
+**Entity ID**: `sensor.<printer_name>_spaghetti_edge_density_external`
+
+**Value**: Current edge density from external camera (0.0 to 1.0)
+
+**Attributes**:
+- `average_edge_density`: Average edge density from external camera
+- `history_size`: Number of layers tracked for external camera
+- `current_layer`: Current layer number
+- `total_layers`: Total layers in the print
+- `camera_source`: "external"
+- `camera_entity_id`: The Home Assistant entity ID of the external camera
+
+**Purpose**: Track edge density specifically from an external camera entity. This sensor allows you to monitor and graph the external camera's edge density values separately from internal camera data.
+
+**Availability**: Only available when an external camera is configured via the External Camera select entity.
 
 #### Spaghetti Test Result
 **Entity ID**: `sensor.<printer_name>_spaghetti_test_result`
@@ -104,13 +139,97 @@ A value of 0.10 means a 10% increase in edge density over the rate window will t
 
 A larger window is more stable but slower to detect issues. A smaller window is more sensitive but may have false positives.
 
-### 4. Spaghetti Detection Switch
+### 4. Spaghetti Detection Switches
 
+#### Main Spaghetti Detection Switch
 **Entity ID**: `switch.<printer_name>_spaghetti_detection`
 
 **Purpose**: Enable or disable spaghetti detection monitoring.
 
 When enabled, monitoring will automatically start when a print begins and stop when it ends.
+
+#### Use Internal Camera Switch
+**Entity ID**: `switch.<printer_name>_spaghetti_use_internal_camera`
+
+**Purpose**: Enable or disable the internal (built-in) chamber camera for spaghetti detection.
+
+**Default**: Enabled (ON)
+
+**Use Cases**:
+- **Disable if internal camera quality is poor**: If your printer's internal camera produces low-quality or unreliable images, you can disable it and rely solely on an external camera.
+- **Compare cameras**: Keep both enabled to track edge density from both cameras simultaneously and compare their performance.
+- **Reduce processing**: Disable if you only want to use an external camera to reduce image processing overhead.
+
+**Important Notes**:
+- When both internal and external cameras are enabled, the system tracks edge density from both sources independently.
+- Alerts can be triggered by either camera if anomalies are detected.
+- Even with internal camera disabled, you can still use an external camera for detection.
+
+## Dual Camera Tracking
+
+The spaghetti detection system supports tracking edge density from both the internal (built-in) chamber camera and an external camera **simultaneously**. This provides:
+
+### Benefits of Dual Camera Tracking
+
+1. **Better Coverage**: Different camera angles can catch different failure modes
+2. **Comparison Data**: Compare edge density between cameras to understand which provides better detection
+3. **Redundancy**: If one camera fails or has poor image quality, the other can still detect issues
+4. **Tuning**: Use historical data from both cameras to determine optimal camera placement and settings
+
+### How Dual Camera Tracking Works
+
+1. **Layer Change Detection**: When a layer changes during printing:
+   - Internal camera image is fetched and analyzed (if enabled)
+   - External camera image is fetched and analyzed (if configured)
+   - Both analyses happen independently
+
+2. **Separate History**: The system maintains separate edge density history for:
+   - Internal camera: `sensor.<printer_name>_spaghetti_edge_density_internal`
+   - External camera: `sensor.<printer_name>_spaghetti_edge_density_external`
+   - Combined: `sensor.<printer_name>_spaghetti_edge_density` (includes data from both)
+
+3. **Independent Baselines**: Each camera has its own baseline and detection thresholds, accounting for different:
+   - Camera angles
+   - Lighting conditions
+   - Image quality
+   - Lens characteristics
+
+4. **Alert Triggering**: An alert can be triggered by either camera if:
+   - Edge density exceeds threshold from baseline
+   - Sudden growth is detected
+   - Rate of change exceeds threshold
+
+### Configuration Options
+
+**Option 1: Internal Camera Only (Default)**
+- External Camera: Not configured
+- Internal Camera: Enabled
+- Result: Uses only built-in chamber camera
+
+**Option 2: External Camera Only**
+- External Camera: Configured
+- Internal Camera: Disabled via switch
+- Result: Uses only external camera, ignores internal
+
+**Option 3: Both Cameras (Recommended)**
+- External Camera: Configured
+- Internal Camera: Enabled
+- Result: Tracks both cameras independently, better detection coverage
+
+### Example: Graphing Both Cameras
+
+To create a graph comparing internal and external camera edge density:
+
+```yaml
+type: history-graph
+title: Spaghetti Detection - Camera Comparison
+entities:
+  - entity: sensor.bambu_lab_p1p_spaghetti_edge_density_internal
+    name: Internal Camera
+  - entity: sensor.bambu_lab_p1p_spaghetti_edge_density_external
+    name: External Camera
+hours_to_show: 2
+```
 
 ## How It Works
 
@@ -139,28 +258,35 @@ When enabled, monitoring will automatically start when a print begins and stop w
 1. **Enable Detection**:
    - Turn on `switch.<printer_name>_spaghetti_detection`
 
-2. **Configure Thresholds** (optional):
+2. **Configure Cameras**:
+   - **Internal Camera**: Enabled by default via `switch.<printer_name>_spaghetti_use_internal_camera`
+   - **External Camera**: Optionally configure via `select.<printer_name>_spaghetti_external_camera`
+   - **Recommendation**: Enable both for best coverage
+
+3. **Configure Thresholds** (optional):
    - Adjust `number.<printer_name>_spaghetti_edge_density_threshold`
    - Adjust `number.<printer_name>_spaghetti_rate_threshold`
    - Adjust `number.<printer_name>_spaghetti_rate_window_size`
 
-3. **Start a Print**:
+4. **Start a Print**:
    - Monitoring automatically starts when print begins
    - Status changes to "monitoring"
 
-4. **During Print**:
-   - On each layer change, the chamber image is analyzed
-   - Edge density is calculated and stored in history
-   - Rate of change is monitored
-   - `sensor.<printer_name>_spaghetti_edge_density` updates with each layer
+5. **During Print**:
+   - On each layer change, images are analyzed from enabled cameras:
+     - Internal camera image (if enabled)
+     - External camera image (if configured)
+   - Edge density is calculated and stored in separate histories
+   - Rate of change is monitored for each camera
+   - All spaghetti edge density sensors update with each layer
 
-5. **Alert Conditions**:
-   - If edge density exceeds threshold from baseline: ALERT
-   - If rate of change exceeds threshold over window: ALERT
+6. **Alert Conditions**:
+   - If edge density exceeds threshold from baseline (either camera): ALERT
+   - If rate of change exceeds threshold over window (either camera): ALERT
    - Status changes to "alert"
    - `event_spaghetti_detected` is fired (can be used in automations)
 
-6. **Print End**:
+7. **Print End**:
    - Monitoring automatically stops when print finishes/fails/cancels
    - History is preserved until next print
 
@@ -334,12 +460,35 @@ Different print types have different characteristics:
 
 ### High system load
 
-**Cause**: Image analysis on every layer change.
+**Cause**: Image analysis on every layer change, potentially from both cameras.
 
 **Solution**:
 1. Image processing is optimized (resized to 640px)
 2. Runs in the event loop without blocking
-3. If still concerned, monitor system resources
+3. If concerned about dual camera overhead:
+   - Disable internal camera via `switch.<printer_name>_spaghetti_use_internal_camera`
+   - Use only external camera if it provides better quality
+4. Monitor system resources
+
+### Different edge density between internal and external cameras
+
+**Cause**: Cameras have different viewing angles, lighting, and quality.
+
+**Solution**:
+1. This is expected - each camera sees the print from a different perspective
+2. Compare the trend/pattern rather than absolute values
+3. Use the camera with more consistent/reliable values for alerting
+4. Graph both sensors to understand which camera provides better detection for your setup
+
+### External camera not updating or showing 0.0 edge density
+
+**Cause**: External camera may not be updating images or has connection issues.
+
+**Solution**:
+1. Check that external camera entity is working in Home Assistant
+2. View the camera feed to confirm it's updating
+3. Check Home Assistant logs for errors fetching external camera images
+4. Verify external camera is properly configured and accessible
 
 ## Technical Details
 
@@ -351,21 +500,34 @@ Different print types have different characteristics:
 - **Threshold**: Binary threshold at intensity 30
 - **Output**: Edge density ratio (0.0 to 1.0)
 
+### Dual Camera Processing
+
+- **Independent Analysis**: Each camera's image is processed separately
+- **Separate Baselines**: Internal and external cameras maintain their own baselines
+- **Separate Histories**: Up to 50 layers of history per camera
+- **Concurrent Processing**: Both cameras are analyzed on each layer change (if enabled)
+- **Memory Efficient**: Only edge density metrics are stored, not images
+
 ### Performance
 
 - **Processing time**: ~50-200ms per image (depending on hardware)
+- **Dual camera overhead**: ~100-400ms per layer change when both cameras are enabled
 - **Memory**: Minimal, images are not stored (only metrics)
-- **History**: Last 50 layers (configurable via `_max_history_size`)
+- **History**: Last 50 layers per camera (configurable via `_max_history_size`)
+- **Total memory footprint**: ~3KB per camera (50 layers × 3 values × 8 bytes)
 
 ## External Camera Support
 
-If the built-in printer camera is not sufficient quality for spaghetti detection, you can configure an external camera to use instead.
+The built-in printer camera can now be used **alongside** an external camera for comprehensive monitoring. You can:
+- Use both cameras simultaneously for dual coverage
+- Use only the external camera if internal quality is poor
+- Compare edge density between cameras
 
 ### Configuration
 
 **Entity ID**: `select.<printer_name>_external_camera`
 
-**Purpose**: Select a Home Assistant camera or image entity to use for spaghetti detection instead of the built-in chamber camera.
+**Purpose**: Select a Home Assistant camera or image entity to use for spaghetti detection in addition to (or instead of) the built-in chamber camera.
 
 **How to configure**:
 
@@ -374,9 +536,12 @@ If the built-in printer camera is not sufficient quality for spaghetti detection
 3. Navigate to the Bambu Lab printer device in Home Assistant
 4. Find the "Spaghetti Detection Camera" select entity
 5. Choose from the dropdown:
-   - **Built-in Chamber Camera** (default) - Uses the printer's internal camera
+   - **Built-in Chamber Camera** (default) - Uses only the printer's internal camera
    - Any configured camera or image entity from your Home Assistant installation
 6. The dropdown automatically includes all available `camera.*` and `image.*` entities
+7. To use both cameras:
+   - Select your external camera from the dropdown
+   - Ensure `switch.<printer_name>_spaghetti_use_internal_camera` is ON
 
 ### Supported Entity Types
 
@@ -385,20 +550,30 @@ If the built-in printer camera is not sufficient quality for spaghetti detection
 
 ### How it Works
 
-When an external camera is selected:
+**Dual Camera Mode** (External camera configured + Internal camera enabled):
+1. **On layer change**: The system:
+   - Fetches and analyzes the internal chamber image
+   - Fetches and analyzes the external camera image
+   - Updates both `sensor.<printer_name>_spaghetti_edge_density_internal` and `sensor.<printer_name>_spaghetti_edge_density_external`
+2. **Independent tracking**: Each camera maintains its own baseline, history, and detection logic
+3. **Combined alerts**: An alert is triggered if either camera detects an anomaly
 
-1. **On layer change**: Instead of using the built-in chamber image, the system fetches the current image from the specified external entity
-2. **Image analysis**: The external image is processed through the same edge detection algorithm
-3. **Detection**: All spaghetti detection features work identically (thresholds, rate monitoring, alerts)
+**External Only Mode** (External camera configured + Internal camera disabled):
+1. **On layer change**: Only the external camera is analyzed
+2. **Resource efficient**: Reduces processing overhead if internal camera quality is poor
 
-**Note**: The spaghetti detection algorithm runs on every layer change during printing, using whichever camera is selected (built-in or external).
+**Internal Only Mode** (No external camera configured):
+1. **On layer change**: Only the internal chamber camera is analyzed (default behavior)
+
+**Note**: The spaghetti detection algorithm runs on every layer change during printing for all enabled cameras.
 
 ### Best Practices
 
-1. **Camera positioning**: Position the external camera to have a similar view angle to the built-in camera for best results
+1. **Camera positioning**: Position the external camera to have a different view angle than the built-in camera for better coverage
 2. **Lighting**: Ensure consistent lighting on the print bed (the external camera may not benefit from the chamber lights)
 3. **Image quality**: Higher resolution cameras generally provide better detection accuracy
 4. **Update frequency**: Ensure your camera updates frequently enough to capture layer changes (typically every few seconds is sufficient)
+5. **Compare data**: Monitor both edge density sensors for a few prints to understand which camera provides more reliable detection
 
 ### Example Setup
 
