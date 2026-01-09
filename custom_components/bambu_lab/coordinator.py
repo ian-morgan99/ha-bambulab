@@ -806,11 +806,9 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             image_data = image_bytes if isinstance(image_bytes, bytearray) else bytearray(image_bytes)
             external_alert = detector.analyze_external_camera_on_layer_change(image_data, layer)
             
-            # Trigger alert if detected and not already triggered
-            if external_alert and not detector.alert_triggered:
-                detector._alert_triggered = True
-                detector._cooldown_counter = detector._alert_cooldown_layers
-                self.client.callback("event_spaghetti_detected")
+            # Trigger alert if detected
+            if external_alert:
+                detector.trigger_alert()
             
         except Exception as e:
             LOGGER.error(f"Error fetching and analyzing external camera image: {e}", exc_info=True)
