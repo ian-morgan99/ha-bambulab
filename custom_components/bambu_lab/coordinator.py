@@ -4,6 +4,7 @@ import asyncio
 import functools
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from datetime import datetime
@@ -851,7 +852,6 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             LOGGER.debug(f"Incognito mode: Scheduling cleanup for '{print_filename}'")
             
             # Run the cleanup in a separate thread to avoid blocking the event loop
-            import threading
             cleanup_thread = threading.Thread(
                 target=self.client.delete_print_files_via_ftp,
                 args=(print_filename,),

@@ -745,9 +745,16 @@ class BambuClient:
                             filename = ' '.join(parts[8:])  # Handle filenames with spaces
                             
                             # Check if the file is related to this print
-                            # Match files that start with base_filename or contain it
-                            if filename.startswith(base_filename) or base_filename in filename:
-                                file_path = f"{directory}/{filename}"
+                            # Use more specific matching: filename must start with base_filename
+                            # This avoids matching "my_model.3mf" when looking for "model"
+                            filename_without_ext = os.path.splitext(filename)[0]
+                            if filename_without_ext == base_filename or filename.startswith(f"{base_filename}."):
+                                # Construct path properly to handle root directory
+                                if directory == '/':
+                                    file_path = f"/{filename}"
+                                else:
+                                    file_path = f"{directory}/{filename}"
+                                    
                                 try:
                                     LOGGER.info(f"Incognito mode: Deleting {file_path}")
                                     ftp.delete(file_path)
