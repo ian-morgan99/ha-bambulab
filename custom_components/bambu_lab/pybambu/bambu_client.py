@@ -688,6 +688,83 @@ class BambuClient:
         ftp.prot_p()
         return ftp
 
+    def delete_print_files_via_ftp(self, print_filename: str):
+        """Delete files associated with a print from the SD card via FTPS.
+        
+        Args:
+            print_filename: The name of the print file (e.g., "model.3mf" or "model.gcode")
+        """
+        if not self._enable_ftp:
+            LOGGER.debug("FTP is disabled, skipping incognito mode file cleanup")
+            return
+        
+        if not self._incognito_mode:
+            LOGGER.debug("Incognito mode is disabled, skipping file cleanup")
+            return
+        
+        if not print_filename:
+            LOGGER.warning("No print filename provided for incognito mode cleanup")
+            return
+        
+        LOGGER.info(f"Incognito mode: Starting file cleanup for print '{print_filename}'")
+        
+        try:
+            ftp = self.ftp_connection()
+            
+            # Extract base filename without extension
+            base_filename = os.path.splitext(print_filename)[0]
+            
+            # Directories to search for files
+            search_dirs = ['/cache', '/timelapse']
+            
+            deleted_files = []
+            failed_deletions = []
+            
+            for directory in search_dirs:
+                try:
+                    LOGGER.debug(f"Incognito mode: Searching {directory} for files to delete")
+                    
+                    # List files in the directory
+                    file_list = []
+                    ftp.retrlines(f"LIST {directory}", lambda line: file_list.append(line))
+                    
+                    for line in file_list:
+                        # Parse FTP LIST output to extract filename
+                        # Format: -rw-r--r-- 1 user group size date time filename
+                        parts = line.split()
+                        if len(parts) >= 9:
+                            filename = ' '.join(parts[8:])  # Handle filenames with spaces
+                            
+                            # Check if the file is related to this print
+                            # Match: base_filename.* or files containing base_filename
+                            if base_filename in filename or filename.startswith(base_filename):
+                                file_path = f"{directory}/{filename}"
+                                try:
+                                    LOGGER.info(f"Incognito mode: Deleting {file_path}")
+                                    ftp.delete(file_path)
+                                    deleted_files.append(file_path)
+                                except ftplib.error_perm as e:
+                                    LOGGER.warning(f"Incognito mode: Failed to delete {file_path}: {e}")
+                                    failed_deletions.append(file_path)
+                                except Exception as e:
+                                    LOGGER.error(f"Incognito mode: Unexpected error deleting {file_path}: {type(e)} {e}")
+                                    failed_deletions.append(file_path)
+                
+                except ftplib.error_perm as e:
+                    LOGGER.debug(f"Incognito mode: Cannot access directory {directory}: {e}")
+                except Exception as e:
+                    LOGGER.error(f"Incognito mode: Error listing directory {directory}: {type(e)} {e}")
+            
+            ftp.quit()
+            
+            if deleted_files:
+                LOGGER.info(f"Incognito mode: Successfully deleted {len(deleted_files)} file(s)")
+            if failed_deletions:
+                LOGGER.warning(f"Incognito mode: Failed to delete {len(failed_deletions)} file(s)")
+                
+        except Exception as e:
+            LOGGER.error(f"Incognito mode: Failed to connect to FTP or cleanup files: {type(e)} {e}")
+
     async def try_connection(self):
         """Test if we can connect to an MQTT broker."""
         LOGGER.debug("Try Connection")

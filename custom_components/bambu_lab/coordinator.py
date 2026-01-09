@@ -168,6 +168,10 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         # event_print_failed
         elif 'event_print_' in event:
             self.PublishDeviceTriggerEvent(event)
+            
+            # Handle incognito mode cleanup after print completion
+            if event in ['event_print_finished', 'event_print_failed', 'event_print_canceled']:
+                self._handle_incognito_cleanup()
 
     async def listen(self):
         LOGGER.debug("Starting listen()")
@@ -828,6 +832,35 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             
         except Exception as e:
             LOGGER.error(f"Error fetching and analyzing external camera image: {e}", exc_info=True)
+
+    def _handle_incognito_cleanup(self):
+        """Handle file cleanup when incognito mode is enabled after print completion."""
+        try:
+            if not self.client.incognito_mode:
+                LOGGER.debug("Incognito mode is disabled, skipping cleanup")
+                return
+            
+            # Get the print filename from the print job
+            print_job = self.get_model().print_job
+            print_filename = print_job.subtask_name or print_job.gcode_file
+            
+            if not print_filename:
+                LOGGER.warning("Incognito mode: No print filename available for cleanup")
+                return
+            
+            LOGGER.debug(f"Incognito mode: Scheduling cleanup for '{print_filename}'")
+            
+            # Run the cleanup in a separate thread to avoid blocking the event loop
+            import threading
+            cleanup_thread = threading.Thread(
+                target=self.client.delete_print_files_via_ftp,
+                args=(print_filename,),
+                daemon=True
+            )
+            cleanup_thread.start()
+            
+        except Exception as e:
+            LOGGER.error(f"Incognito mode: Error handling cleanup: {e}", exc_info=True)
 
     def _update_device_info(self):
         if not self._updatedDevice:
