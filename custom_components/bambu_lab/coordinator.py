@@ -261,8 +261,10 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
                     pass
                 else:
                     # Not for this coordinator
+                    LOGGER.debug(f"Incognito mode: Service call for notification {notification_id} not handled by this coordinator")
                     return
             else:
+                LOGGER.debug(f"Incognito mode: No pending deletion found for notification {notification_id}")
                 return
         elif not self._is_service_call_for_me(data):
             # Call is not for this instance.
@@ -964,7 +966,9 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             
             # Store the files list for later deletion
             serial = self.get_model().info.serial
-            notification_id = f"bambu_incognito_{serial}_{int(time.time())}"
+            # Use uuid to ensure uniqueness even with multiple simultaneous prints
+            import uuid
+            notification_id = f"bambu_incognito_{serial}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
             
             # Store in hass.data for the service to access
             if DOMAIN not in self._hass.data:
@@ -998,7 +1002,7 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             for directory in sorted(files_by_dir.keys()):
                 message_parts.append(f"\n**Directory: `{directory}`**")
                 for file_info in files_by_dir[directory]:
-                    message_parts.append(f"- `{file_info['filename']}` (created: {file_info['timestamp']})")
+                    message_parts.append(f"- `{file_info['filename']}` (modified: {file_info['timestamp']})")
             
             message_parts.append(f"\n\nTo confirm deletion, call the service:")
             message_parts.append(f"```yaml")

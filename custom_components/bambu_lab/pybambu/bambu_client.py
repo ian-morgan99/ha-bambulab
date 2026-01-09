@@ -751,8 +751,12 @@ class BambuClient:
                                 filename_without_ext.startswith(dash_prefix)):
                                 
                                 # Extract timestamp from FTP LIST
-                                # Format: month day time/year
-                                timestamp_str = ' '.join(parts[5:8])
+                                # Format: month day time/year (e.g., "Jan 09 12:00" or "Jan 09 2025")
+                                # Handle different FTP server timestamp formats
+                                try:
+                                    timestamp_str = ' '.join(parts[5:8])
+                                except IndexError:
+                                    timestamp_str = "unknown"
                                 
                                 # Construct full path
                                 if directory == '/':
