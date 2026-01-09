@@ -335,6 +335,10 @@ class ImplicitFTP_TLS(ftplib.FTP_TLS):
 @dataclass
 class BambuClient:
     """Initialize Bambu Client to connect to MQTT Broker"""
+    # FTP LIST format constant: -rw-r--r-- 1 user group size date time filename
+    # Minimum number of fields before filename starts
+    FTP_LIST_MIN_FIELDS = 9
+    
     _watchdog = None
     _camera = None
     _mqtt = None
@@ -687,6 +691,185 @@ class BambuClient:
         ftp.login(user='bblp', passwd=self._access_code)
         ftp.prot_p()
         return ftp
+
+    def scan_print_files_for_deletion(self, print_filename: str):
+        """Scan and identify files associated with a print for deletion.
+        
+        Args:
+            print_filename: The name of the print file (e.g., "model.3mf" or "model.gcode")
+            
+        Returns:
+            list: A list of dictionaries containing file information with keys:
+                - 'path': Full file path on the SD card
+                - 'directory': Directory containing the file
+                - 'filename': Name of the file
+                - 'timestamp': File modification timestamp string
+            
+            Returns an empty list if:
+            - FTP is disabled on the client
+            - No print filename is provided
+            - No matching files are found
+            - FTP connection or scanning fails
+        """
+        if not self._enable_ftp:
+            LOGGER.debug("FTP is disabled, skipping incognito mode file scan")
+            return []
+        
+        if not print_filename:
+            LOGGER.warning("No print filename provided for incognito mode scan")
+            return []
+        
+        LOGGER.info(f"Incognito mode: Scanning files for print '{print_filename}'")
+        
+        ftp = None
+        files_to_delete = []
+        
+        try:
+            ftp = self.ftp_connection()
+            
+            # Extract base filename without extension and remove path components
+            base_filename = os.path.splitext(os.path.basename(print_filename))[0]
+            
+            # Pre-compute filename prefixes for matching
+            underscore_prefix = f"{base_filename}_"
+            dash_prefix = f"{base_filename}-"
+            
+            # Directories to search for files
+            search_dirs = ['/', '/cache', '/timelapse', '/timelapse/thumbnail']
+            
+            for directory in search_dirs:
+                try:
+                    LOGGER.debug(f"Incognito mode: Scanning {directory} for files")
+                    
+                    file_list = []
+                    try:
+                        ftp.retrlines(f"LIST {directory}", lambda line: file_list.append(line))
+                    except ftplib.error_perm:
+                        continue
+                    
+                    for line in file_list:
+                        try:
+                            parts = line.split()
+                            if len(parts) < self.FTP_LIST_MIN_FIELDS:
+                                continue
+                            
+                            filename = ' '.join(parts[8:])
+                            filename_without_ext = os.path.splitext(filename)[0]
+                            
+                            # Match files related to this print
+                            if (filename_without_ext == base_filename or 
+                                filename_without_ext.startswith(underscore_prefix) or
+                                filename_without_ext.startswith(dash_prefix)):
+                                
+                                # Extract timestamp from FTP LIST
+                                # Format: month day time/year (e.g., "Jan 09 12:00" or "Jan 09 2025")
+                                # Handle different FTP server timestamp formats
+                                try:
+                                    timestamp_str = ' '.join(parts[5:8])
+                                except IndexError:
+                                    timestamp_str = "unknown"
+                                
+                                # Construct full path
+                                if directory == '/':
+                                    file_path = f"/{filename}"
+                                else:
+                                    file_path = f"{directory}/{filename}"
+                                
+                                files_to_delete.append({
+                                    'path': file_path,
+                                    'directory': directory,
+                                    'filename': filename,
+                                    'timestamp': timestamp_str
+                                })
+                                LOGGER.debug(f"Incognito mode: Found file {file_path} ({timestamp_str})")
+                        except Exception as e:
+                            LOGGER.debug(f"Incognito mode: Could not parse FTP LIST line: {line[:50]}... Error: {e}")
+                
+                except Exception as e:
+                    LOGGER.debug(f"Incognito mode: Error scanning directory {directory}: {type(e)} {e}")
+            
+            LOGGER.info(f"Incognito mode: Found {len(files_to_delete)} file(s) to delete")
+            
+        except Exception as e:
+            LOGGER.error(f"Incognito mode: Failed to connect to FTP or scan files: {type(e)} {e}")
+        finally:
+            if ftp is not None:
+                try:
+                    ftp.quit()
+                except Exception as e:
+                    LOGGER.debug(
+                        "Incognito mode: Failed to close FTP connection cleanly: %s %s",
+                        type(e),
+                        e,
+                    )
+        
+        return files_to_delete
+
+    def delete_print_files_via_ftp(self, file_paths: list):
+        """Delete specified files from the SD card via FTPS.
+        
+        Args:
+            file_paths: List of file paths to delete.
+            
+        Returns:
+            dict: A dictionary with two keys:
+                - ``deleted_files``: list of file paths that were successfully deleted.
+                - ``failed_deletions``: list of file paths that could not be deleted.
+            
+            If FTP is disabled on the client, no FTP connection is attempted; the
+            function logs this condition and returns
+            ``{'deleted_files': [], 'failed_deletions': []}``.
+            
+            If establishing the FTP connection or performing the cleanup fails due
+            to an error, the function logs the error and still returns a dictionary
+            with ``deleted_files`` and ``failed_deletions`` lists (both will be
+            empty if no deletion attempts could be made). The function does not
+            raise exceptions for connection or cleanup failures.
+        """
+        if not self._enable_ftp:
+            LOGGER.debug("FTP is disabled, skipping incognito mode file cleanup")
+            return {'deleted_files': [], 'failed_deletions': []}
+        
+        LOGGER.info(f"Incognito mode: Starting file cleanup for {len(file_paths)} file(s)")
+        
+        ftp = None
+        deleted_files = []
+        failed_deletions = []
+        
+        try:
+            ftp = self.ftp_connection()
+            
+            for file_path in file_paths:
+                try:
+                    LOGGER.info(f"Incognito mode: Deleting {file_path}")
+                    ftp.delete(file_path)
+                    deleted_files.append(file_path)
+                except ftplib.error_perm as e:
+                    LOGGER.warning(f"Incognito mode: Failed to delete {file_path}: {e}")
+                    failed_deletions.append(file_path)
+                except Exception as e:
+                    LOGGER.error(f"Incognito mode: Unexpected error deleting {file_path}: {type(e)} {e}")
+                    failed_deletions.append(file_path)
+            
+            if deleted_files:
+                LOGGER.info(f"Incognito mode: Successfully deleted {len(deleted_files)} file(s)")
+            if failed_deletions:
+                LOGGER.warning(f"Incognito mode: Failed to delete {len(failed_deletions)} file(s)")
+                
+        except Exception as e:
+            LOGGER.error(f"Incognito mode: Failed to connect to FTP or cleanup files: {type(e)} {e}")
+        finally:
+            if ftp is not None:
+                try:
+                    ftp.quit()
+                except Exception as e:
+                    LOGGER.debug(
+                        "Incognito mode: Failed to close FTP connection cleanly: %s %s",
+                        type(e),
+                        e,
+                    )
+        
+        return {'deleted_files': deleted_files, 'failed_deletions': failed_deletions}
 
     async def try_connection(self):
         """Test if we can connect to an MQTT broker."""

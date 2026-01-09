@@ -4,7 +4,9 @@ import asyncio
 import functools
 import os
 import re
+import threading
 import time
+import uuid
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional, List, Dict
@@ -168,6 +170,10 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         # event_print_failed
         elif 'event_print_' in event:
             self.PublishDeviceTriggerEvent(event)
+            
+            # Handle incognito mode cleanup after print completion
+            if event in ['event_print_finished', 'event_print_failed', 'event_print_canceled']:
+                self._handle_incognito_cleanup()
 
     async def listen(self):
         LOGGER.debug("Starting listen()")
@@ -244,13 +250,29 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _handle_service_call_event(self, event: Event) -> Any:
         data = event.data
-        if not self._is_service_call_for_me(data):
+        service_call_name = data['service']
+        
+        # Handle confirm_incognito_deletion specially - it should only be handled by one coordinator
+        if service_call_name == 'confirm_incognito_deletion':
+            notification_id = data.get('notification_id')
+            if notification_id and DOMAIN in self._hass.data and 'incognito_pending' in self._hass.data[DOMAIN]:
+                pending = self._hass.data[DOMAIN]['incognito_pending'].get(notification_id)
+                if pending and pending['serial'] == self.get_model().info.serial:
+                    # This coordinator owns this notification
+                    pass
+                else:
+                    # Not for this coordinator
+                    LOGGER.debug(f"Incognito mode: Service call for notification {notification_id} not handled by this coordinator")
+                    return
+            else:
+                LOGGER.debug(f"Incognito mode: No pending deletion found for notification {notification_id}")
+                return
+        elif not self._is_service_call_for_me(data):
             # Call is not for this instance.
             return
         
-        service_call_name = data['service']
         write_action = True
-        if service_call_name == 'get_filament_data':
+        if service_call_name in ['get_filament_data', 'confirm_incognito_deletion']:
             write_action = False
 
         if write_action:
@@ -291,6 +313,8 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
                 result = self._service_call_filament_drying(data)
             case "stop_filament_drying":
                 result = self._service_call_filament_drying(data)
+            case "confirm_incognito_deletion":
+                result = self._service_call_confirm_incognito_deletion(data)
             case _:
                 LOGGER.error(f"Unknown service call: {data}")
 
@@ -676,6 +700,159 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         command["print"]["subtask_name"] = os.path.basename(filepath)
 
         self.client.publish(command)
+    
+    def _service_call_confirm_incognito_deletion(self, data: dict):
+        """Service call to confirm and execute incognito file deletion."""
+        notification_id = data.get('notification_id')
+        if not notification_id:
+            LOGGER.error("Incognito mode: notification_id is required")
+            # Inform the user that the service call was invalid
+            self._hass.loop.call_soon_threadsafe(
+                self._hass.async_create_task,
+                self._hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": "Incognito Mode: Deletion Failed",
+                        "message": (
+                            "Unable to confirm incognito file deletion: "
+                            "a valid 'notification_id' was not provided."
+                        ),
+                        "notification_id": "bambu_incognito_error_missing_notification_id",
+                    },
+                ),
+            )
+            return False
+        
+        # Retrieve the pending deletion data
+        if DOMAIN not in self._hass.data or 'incognito_pending' not in self._hass.data[DOMAIN]:
+            LOGGER.error(f"Incognito mode: No pending deletions found")
+            # Inform the user that there are no pending deletions
+            self._hass.loop.call_soon_threadsafe(
+                self._hass.async_create_task,
+                self._hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": "Incognito Mode: Deletion Failed",
+                        "message": (
+                            "Unable to confirm incognito file deletion: "
+                            "no pending deletion requests were found."
+                        ),
+                        "notification_id": f"bambu_incognito_error_no_pending_{notification_id}",
+                    },
+                ),
+            )
+            return False
+        
+        pending = self._hass.data[DOMAIN]['incognito_pending'].get(notification_id)
+        if not pending:
+            LOGGER.error(f"Incognito mode: Notification {notification_id} not found")
+            # Inform the user that the specific notification could not be found
+            self._hass.loop.call_soon_threadsafe(
+                self._hass.async_create_task,
+                self._hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": "Incognito Mode: Deletion Failed",
+                        "message": (
+                            f"Unable to confirm incognito file deletion: "
+                            f"notification '{notification_id}' was not found."
+                        ),
+                        "notification_id": f"bambu_incognito_error_not_found_{notification_id}",
+                    },
+                ),
+            )
+            return False
+        
+        files_to_delete = pending['files']
+        print_filename = pending['print_filename']
+        
+        LOGGER.info(f"Incognito mode: User confirmed deletion of {len(files_to_delete)} file(s) for '{print_filename}'")
+        
+        # Extract file paths for deletion
+        file_paths = [f['path'] for f in files_to_delete]
+        
+        # Run deletion in separate thread
+        def delete_and_notify():
+            result = {"deleted_files": [], "failed_deletions": []}
+            try:
+                result = self.client.delete_print_files_via_ftp(file_paths)
+                
+                # Dismiss the confirmation notification
+                self._hass.loop.call_soon_threadsafe(
+                    self._hass.async_create_task,
+                    self._hass.services.async_call(
+                        "persistent_notification",
+                        "dismiss",
+                        {"notification_id": notification_id}
+                    )
+                )
+                
+                # Create result notification
+                deleted_count = len(result['deleted_files'])
+                failed_count = len(result['failed_deletions'])
+                
+                if deleted_count > 0:
+                    message = f"Incognito mode successfully deleted {deleted_count} file(s) for print '{print_filename}'."
+                    if failed_count > 0:
+                        message += f"\n\n{failed_count} file(s) failed to delete."
+                    
+                    self._hass.loop.call_soon_threadsafe(
+                        self._hass.async_create_task,
+                        self._hass.services.async_call(
+                            "persistent_notification",
+                            "create",
+                            {
+                                "title": "Incognito Mode: Deletion Complete",
+                                "message": message,
+                                "notification_id": f"bambu_incognito_result_{notification_id}"
+                            }
+                        )
+                    )
+                else:
+                    # No files were deleted; notify user of failure
+                    message = (
+                        f"Incognito mode could not delete any files for print '{print_filename}'."
+                    )
+                    if failed_count > 0:
+                        message += f"\n\n{failed_count} file(s) failed to delete."
+                    
+                    self._hass.loop.call_soon_threadsafe(
+                        self._hass.async_create_task,
+                        self._hass.services.async_call(
+                            "persistent_notification",
+                            "create",
+                            {
+                                "title": "Incognito Mode: Deletion Failed",
+                                "message": message,
+                                "notification_id": f"bambu_incognito_result_{notification_id}"
+                            }
+                        )
+                    )
+            finally:
+                # Clean up pending data safely, tolerating concurrent changes
+                try:
+                    domain_data = self._hass.data.get(DOMAIN, {})
+                    incognito_pending = domain_data.get('incognito_pending')
+                    if incognito_pending is not None:
+                        incognito_pending.pop(notification_id, None)
+                except Exception as err:
+                    LOGGER.error(
+                        "Incognito mode: Failed to clean up pending deletion for %s: %s",
+                        notification_id,
+                        err,
+                    )
+        
+        cleanup_thread = threading.Thread(
+            target=delete_and_notify,
+            name=f"IncognitoDelete-{notification_id}",
+            daemon=False
+        )
+        cleanup_thread.start()
+        
+        return True
 
     async def _async_update_data(self):
         LOGGER.debug(f"_async_update_data() called")
@@ -828,6 +1005,130 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             
         except Exception as e:
             LOGGER.error(f"Error fetching and analyzing external camera image: {e}", exc_info=True)
+
+    def _handle_incognito_cleanup(self):
+        """Handle file cleanup when incognito mode is enabled after print completion."""
+        try:
+            if not self.client.incognito_mode:
+                LOGGER.debug("Incognito mode is disabled, skipping cleanup")
+                return
+            
+            # Get the print filename from the print job
+            print_job = self.get_model().print_job
+            print_filename = print_job.subtask_name or print_job.gcode_file
+            
+            if not print_filename:
+                LOGGER.warning("Incognito mode: No print filename available for cleanup")
+                return
+            
+            LOGGER.debug(f"Incognito mode: Scanning files for '{print_filename}'")
+            
+            # Run the scan in a separate thread to avoid blocking the event loop
+            scan_thread = threading.Thread(
+                target=self._scan_and_notify_incognito_files,
+                args=(print_filename,),
+                name=f"IncognitoScan-{print_filename}",
+                daemon=False
+            )
+            scan_thread.start()
+            
+        except Exception as e:
+            LOGGER.error(f"Incognito mode: Error handling cleanup: {e}", exc_info=True)
+    
+    def _scan_and_notify_incognito_files(self, print_filename: str):
+        """Scan files and create notification for user confirmation."""
+        try:
+            # Scan for files to delete
+            files_to_delete = self.client.scan_print_files_for_deletion(print_filename)
+            
+            if not files_to_delete:
+                LOGGER.info(f"Incognito mode: No files found to delete for '{print_filename}'")
+                return
+            
+            # Store the files list for later deletion
+            serial = self.get_model().info.serial
+            # Current time for ID and TTL handling
+            now = time.time()
+            notification_id = f"bambu_incognito_{serial}_{int(now)}_{uuid.uuid4().hex[:8]}"
+            
+            # Store in hass.data for the service to access
+            if DOMAIN not in self._hass.data:
+                self._hass.data[DOMAIN] = {}
+            if 'incognito_pending' not in self._hass.data[DOMAIN]:
+                self._hass.data[DOMAIN]['incognito_pending'] = {}
+            
+            pending = self._hass.data[DOMAIN]['incognito_pending']
+            
+            # Cleanup old pending deletions using a simple TTL
+            ttl_seconds = 24 * 60 * 60  # 24 hours
+            expired_ids = []
+            for pending_id, pending_data in list(pending.items()):
+                if not isinstance(pending_data, dict):
+                    continue
+                created_at = pending_data.get('created_at', 0)
+                if now - created_at > ttl_seconds:
+                    expired_ids.append(pending_id)
+            for expired_id in expired_ids:
+                del pending[expired_id]
+                LOGGER.debug(f"Incognito mode: Removed expired pending deletion {expired_id}")
+            
+            pending[notification_id] = {
+                'files': files_to_delete,
+                'serial': serial,
+                'print_filename': print_filename,
+                'created_at': now,
+            }
+            
+            # Build notification message
+            message_parts = [
+                "**Incognito Mode: Confirm File Deletion**",
+                f"Print: `{print_filename}`",
+                f"Printer: `{serial}`",
+                f"\nThe following {len(files_to_delete)} file(s) will be deleted:"
+            ]
+            
+            # Group files by directory
+            files_by_dir = {}
+            for file_info in files_to_delete:
+                directory = file_info['directory']
+                if directory not in files_by_dir:
+                    files_by_dir[directory] = []
+                files_by_dir[directory].append(file_info)
+            
+            # Format file list
+            for directory in sorted(files_by_dir.keys()):
+                message_parts.append(f"\n**Directory: `{directory}`**")
+                for file_info in files_by_dir[directory]:
+                    message_parts.append(f"- `{file_info['filename']}` (modified: {file_info['timestamp']})")
+            
+            message_parts.append("\n\nTo confirm deletion, call the service:")
+            message_parts.append("```yaml")
+            message_parts.append("service: bambu_lab.confirm_incognito_deletion")
+            message_parts.append("data:")
+            message_parts.append(f"  notification_id: \"{notification_id}\"")
+            message_parts.append("```")
+            message_parts.append("\nOr dismiss this notification to cancel.")
+            
+            message = '\n'.join(message_parts)
+            
+            # Create persistent notification
+            self._hass.loop.call_soon_threadsafe(
+                self._hass.async_create_task,
+                self._hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": "Incognito Mode: Confirm Deletion",
+                        "message": message,
+                        "notification_id": notification_id
+                    }
+                )
+            )
+            
+            LOGGER.info(f"Incognito mode: Created notification {notification_id} for user confirmation")
+            
+        except Exception as e:
+            LOGGER.error(f"Incognito mode: Error scanning and notifying: {e}", exc_info=True)
 
     def _update_device_info(self):
         if not self._updatedDevice:
