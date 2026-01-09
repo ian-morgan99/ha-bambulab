@@ -2240,18 +2240,16 @@ class PrintJob:
             # Scan each search path
             searched_paths = []
             failed_paths = []
-            original_cwd = None
+            
+            # Save original directory before loop
+            try:
+                original_cwd = ftp.pwd()
+            except Exception:
+                original_cwd = '/'
             
             for path in search_paths:
                 try:
                     LOGGER.debug(f"Searching for images in {path}")
-                    
-                    # Save original directory if not already saved
-                    if original_cwd is None:
-                        try:
-                            original_cwd = ftp.pwd()
-                        except Exception:
-                            original_cwd = '/'
                     
                     # Change to the target directory and list without embedding path in command
                     ftp.cwd(path)
@@ -2264,11 +2262,10 @@ class PrintJob:
                     LOGGER.debug(f"Error listing {path}: {e}")
                     failed_paths.append(path)
                     # Try to return to original directory on error
-                    if original_cwd:
-                        try:
-                            ftp.cwd(original_cwd)
-                        except Exception:
-                            pass
+                    try:
+                        ftp.cwd(original_cwd)
+                    except Exception:
+                        pass
                     continue
             
             if not all_images:
@@ -2379,18 +2376,16 @@ class PrintJob:
             # Scan each search path
             searched_paths = []
             failed_paths = []
-            original_cwd = None
+            
+            # Save original directory before loop
+            try:
+                original_cwd = ftp.pwd()
+            except Exception:
+                original_cwd = '/'
             
             for path in search_paths:
                 try:
                     LOGGER.debug(f"Searching for videos in {path}")
-                    
-                    # Save original directory if not already saved
-                    if original_cwd is None:
-                        try:
-                            original_cwd = ftp.pwd()
-                        except Exception:
-                            original_cwd = '/'
                     
                     # Change to the target directory and list without embedding path in command
                     ftp.cwd(path)
@@ -2403,11 +2398,10 @@ class PrintJob:
                     LOGGER.debug(f"Error listing {path}: {e}")
                     failed_paths.append(path)
                     # Try to return to original directory on error
-                    if original_cwd:
-                        try:
-                            ftp.cwd(original_cwd)
-                        except Exception:
-                            pass
+                    try:
+                        ftp.cwd(original_cwd)
+                    except Exception:
+                        pass
                     continue
             
             if not all_videos:

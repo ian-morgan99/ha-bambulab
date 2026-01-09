@@ -126,7 +126,7 @@ class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
         
         # If external camera is set but not available, log warning and return built-in
         if external_camera:
-            LOGGER.warning(f"External camera entity '{external_camera}' is no longer available, falling back to built-in camera")
+            LOGGER.warning("External camera entity '%s' is no longer available, falling back to built-in camera", external_camera)
         
         return "Built-in Chamber Camera"
 
