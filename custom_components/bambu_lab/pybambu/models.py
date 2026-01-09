@@ -2183,19 +2183,25 @@ class PrintJob:
                     all_images.append(result)
             
             # Scan each search path
+            searched_paths = []
+            failed_paths = []
             for path in search_paths:
                 try:
                     LOGGER.debug(f"Searching for images in {path}")
                     ftp.retrlines(f"LIST {path}", lambda line: parse_line(line, path))
+                    searched_paths.append(path)
                 except Exception as e:
                     LOGGER.debug(f"Error listing {path}: {e}")
+                    failed_paths.append(path)
                     continue
             
             if not all_images:
-                LOGGER.warning(f"No image files found in any search path: {search_paths}")
+                success_msg = f"Successfully searched: {', '.join(searched_paths)}" if searched_paths else "No paths successfully searched"
+                fail_msg = f" (Failed to access: {', '.join(failed_paths)})" if failed_paths else ""
+                LOGGER.warning(f"No image files found. {success_msg}{fail_msg}")
                 return {
                     "success": False,
-                    "message": f"No image files found in {', '.join(search_paths)}",
+                    "message": f"No image files found in {', '.join(searched_paths)}{fail_msg}",
                     "image_path": None,
                     "image_data": None
                 }
@@ -2289,19 +2295,25 @@ class PrintJob:
                     all_videos.append(result)
             
             # Scan each search path
+            searched_paths = []
+            failed_paths = []
             for path in search_paths:
                 try:
                     LOGGER.debug(f"Searching for videos in {path}")
                     ftp.retrlines(f"LIST {path}", lambda line: parse_line(line, path))
+                    searched_paths.append(path)
                 except Exception as e:
                     LOGGER.debug(f"Error listing {path}: {e}")
+                    failed_paths.append(path)
                     continue
             
             if not all_videos:
-                LOGGER.warning(f"No video files found in any search path: {search_paths}")
+                success_msg = f"Successfully searched: {', '.join(searched_paths)}" if searched_paths else "No paths successfully searched"
+                fail_msg = f" (Failed to access: {', '.join(failed_paths)})" if failed_paths else ""
+                LOGGER.warning(f"No video files found. {success_msg}{fail_msg}")
                 return {
                     "success": False,
-                    "message": f"No video files found in {', '.join(search_paths)}",
+                    "message": f"No video files found in {', '.join(searched_paths)}{fail_msg}",
                     "video_path": None,
                     "image_data": None
                 }
