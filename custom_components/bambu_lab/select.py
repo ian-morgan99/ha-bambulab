@@ -109,8 +109,10 @@ class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
     @property
     def current_option(self) -> str:
         """Return the current selected camera."""
+        # Ensure options are loaded/updated before validating the stored entity
+        available_options = self.options
         external_camera = self.coordinator.get_model().spaghetti_detector.external_camera_entity_id
-        if external_camera:
+        if external_camera and external_camera in available_options:
             return external_camera
         return "Built-in Chamber Camera"
 
