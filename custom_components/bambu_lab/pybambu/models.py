@@ -1046,7 +1046,6 @@ class PrintJob:
             self._client.callback("event_print_started")
             
             # Reset and start spaghetti detector for new print
-            self._client._device.spaghetti_detector.reset()
             if self._client._device.spaghetti_detector.is_enabled:
                 self._client._device.spaghetti_detector.start_monitoring()
 
@@ -3708,10 +3707,24 @@ class SpaghettiDetector:
         self._enabled = True
         LOGGER.debug("Spaghetti detection enabled")
         
+        # If a print is currently active, start monitoring immediately
+        try:
+            gcode_state = self._client._device.print_job.gcode_state
+            is_printing = gcode_state not in ["IDLE", "FAILED", "FINISH", "unknown"]
+            if is_printing and not self._monitoring_active:
+                self.start_monitoring()
+                LOGGER.info("Spaghetti detection enabled during active print - monitoring started")
+        except (AttributeError, TypeError) as e:
+            # print_job or gcode_state might not be available yet during initialization
+            LOGGER.debug(f"Could not check print state when enabling spaghetti detection: {e}")
+        
     def disable(self):
         """Disable spaghetti detection."""
         self._enabled = False
         self._alert_triggered = False
+        # Stop monitoring if it's currently active
+        if self._monitoring_active:
+            self.stop_monitoring()
         LOGGER.debug("Spaghetti detection disabled")
         
     def reset(self):
