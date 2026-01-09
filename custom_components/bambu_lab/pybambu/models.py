@@ -2178,10 +2178,11 @@ class PrintJob:
             for line in root_listing:
                 # Parse directory entries (start with 'd')
                 if line.startswith('d'):
-                    # Extract directory name (last field in LIST output)
-                    parts = line.split()
+                    # Extract directory name - handle names with spaces by splitting into at most 9 parts
+                    # Standard FTP LIST format has 8 fields before the filename
+                    parts = line.split(None, 8)  # Split on whitespace, max 9 parts
                     if len(parts) >= 9:
-                        dir_name = parts[-1]
+                        dir_name = parts[8]  # The 9th field (index 8) is the directory name
                         dir_path = f'/{dir_name}'
                         
                         # Add if it's one of our known directories
@@ -2239,23 +2240,51 @@ class PrintJob:
             # Scan each search path
             searched_paths = []
             failed_paths = []
+            original_cwd = None
+            
             for path in search_paths:
                 try:
                     LOGGER.debug(f"Searching for images in {path}")
-                    ftp.retrlines(f"LIST {path}", lambda line: parse_line(line, path))
+                    
+                    # Save original directory if not already saved
+                    if original_cwd is None:
+                        try:
+                            original_cwd = ftp.pwd()
+                        except Exception:
+                            original_cwd = '/'
+                    
+                    # Change to the target directory and list without embedding path in command
+                    ftp.cwd(path)
+                    ftp.retrlines("LIST", lambda line: parse_line(line, path))
                     searched_paths.append(path)
+                    
+                    # Return to original directory
+                    ftp.cwd(original_cwd)
                 except Exception as e:
                     LOGGER.debug(f"Error listing {path}: {e}")
                     failed_paths.append(path)
+                    # Try to return to original directory on error
+                    if original_cwd:
+                        try:
+                            ftp.cwd(original_cwd)
+                        except Exception:
+                            pass
                     continue
             
             if not all_images:
-                success_msg = f"Successfully searched: {', '.join(searched_paths)}" if searched_paths else "No paths successfully searched"
+                if searched_paths:
+                    success_msg = f"Successfully searched: {', '.join(searched_paths)}"
+                    message = f"No image files found in {', '.join(searched_paths)}"
+                else:
+                    success_msg = "No paths successfully searched"
+                    message = "No image files found. No paths successfully searched"
+                
                 fail_msg = f" (Failed to access: {', '.join(failed_paths)})" if failed_paths else ""
                 LOGGER.warning(f"No image files found. {success_msg}{fail_msg}")
+                
                 return {
                     "success": False,
-                    "message": f"No image files found in {', '.join(searched_paths)}{fail_msg}",
+                    "message": f"{message}{fail_msg}",
                     "image_path": None,
                     "image_data": None
                 }
@@ -2367,12 +2396,19 @@ class PrintJob:
                     continue
             
             if not all_videos:
-                success_msg = f"Successfully searched: {', '.join(searched_paths)}" if searched_paths else "No paths successfully searched"
+                if searched_paths:
+                    success_msg = f"Successfully searched: {', '.join(searched_paths)}"
+                    message = f"No video files found in {', '.join(searched_paths)}"
+                else:
+                    success_msg = "No paths successfully searched"
+                    message = "No video files found. No paths successfully searched"
+                
                 fail_msg = f" (Failed to access: {', '.join(failed_paths)})" if failed_paths else ""
                 LOGGER.warning(f"No video files found. {success_msg}{fail_msg}")
+                
                 return {
                     "success": False,
-                    "message": f"No video files found in {', '.join(searched_paths)}{fail_msg}",
+                    "message": f"{message}{fail_msg}",
                     "video_path": None,
                     "image_data": None
                 }

@@ -105,6 +105,13 @@ class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
         if not self._options_loaded:
             self._update_options()
         return self._attr_options
+    
+    def refresh_options(self) -> None:
+        """Refresh the list of available camera options.
+        
+        This can be called to update the options list if cameras are added/removed.
+        """
+        self._update_options()
 
     @property
     def current_option(self) -> str:
@@ -112,8 +119,15 @@ class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
         # Ensure options are loaded/updated before validating the stored entity
         available_options = self.options
         external_camera = self.coordinator.get_model().spaghetti_detector.external_camera_entity_id
+        
+        # Validate that the external camera is still in the available options
         if external_camera and external_camera in available_options:
             return external_camera
+        
+        # If external camera is set but not available, log warning and return built-in
+        if external_camera:
+            LOGGER.warning(f"External camera entity '{external_camera}' is no longer available, falling back to built-in camera")
+        
         return "Built-in Chamber Camera"
 
     async def async_select_option(self, option: str) -> None:
