@@ -2379,20 +2379,35 @@ class PrintJob:
             # Scan each search path
             searched_paths = []
             failed_paths = []
+            original_cwd = None
+            
             for path in search_paths:
                 try:
                     LOGGER.debug(f"Searching for videos in {path}")
-                    # Change to the target directory and list its contents without embedding the path
-                    safe_path = path
-                    ftp.cwd(safe_path)
-                    ftp.retrlines(
-                        "LIST",
-                        lambda line, current_path=safe_path: parse_line(line, current_path),
-                    )
-                    searched_paths.append(safe_path)
+                    
+                    # Save original directory if not already saved
+                    if original_cwd is None:
+                        try:
+                            original_cwd = ftp.pwd()
+                        except Exception:
+                            original_cwd = '/'
+                    
+                    # Change to the target directory and list without embedding path in command
+                    ftp.cwd(path)
+                    ftp.retrlines("LIST", lambda line: parse_line(line, path))
+                    searched_paths.append(path)
+                    
+                    # Return to original directory
+                    ftp.cwd(original_cwd)
                 except Exception as e:
                     LOGGER.debug(f"Error listing {path}: {e}")
                     failed_paths.append(path)
+                    # Try to return to original directory on error
+                    if original_cwd:
+                        try:
+                            ftp.cwd(original_cwd)
+                        except Exception:
+                            pass
                     continue
             
             if not all_videos:
