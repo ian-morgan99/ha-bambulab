@@ -25,9 +25,16 @@ async def async_setup_entry(
         return
     
     LOGGER.debug("SELECT::async_setup_entry")
+    entities = []
+    
     # Unsure if hybrid mode also blocks speed control.
     if not coordinator.get_model().print_fun.mqtt_signature_required:
-        async_add_entities( [ BambuLabSpeedSelect(coordinator) ] )
+        entities.append(BambuLabSpeedSelect(coordinator))
+    
+    # Add external camera select for spaghetti detection
+    entities.append(BambuLabExternalCameraSelect(coordinator, hass))
+    
+    async_add_entities(entities)
 
 
 class BambuLabSpeedSelect(BambuLabEntity, SelectEntity):
@@ -58,3 +65,57 @@ class BambuLabSpeedSelect(BambuLabEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         """Set print speed."""
         self.coordinator.get_model().speed.SetSpeed(option)
+
+
+class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
+    """External camera select for spaghetti detection."""
+
+    _attr_icon = "mdi:camera-plus"
+    _attr_translation_key = "spaghetti_external_camera"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: BambuDataUpdateCoordinator, hass: HomeAssistant) -> None:
+        """Initialize External Camera Select."""
+        super().__init__(coordinator=coordinator)
+        self._hass = hass
+        printer = self.coordinator.get_model().info
+        self._attr_unique_id = f"{printer.serial}_external_camera"
+        
+        # Initialize with built-in camera option
+        self._update_options()
+
+    def _update_options(self) -> None:
+        """Update the list of available camera options."""
+        # Start with built-in camera option
+        options = ["Built-in Chamber Camera"]
+        
+        # Get all camera and image entities from Home Assistant
+        if self._hass and self._hass.states:
+            for state in self._hass.states.async_all():
+                if state.domain in ["camera", "image"]:
+                    # Add entity_id as an option
+                    options.append(state.entity_id)
+        
+        self._attr_options = sorted(options)
+
+    @property
+    def current_option(self) -> str:
+        """Return the current selected camera."""
+        external_camera = self.coordinator.get_model().spaghetti_detector.external_camera_entity_id
+        if external_camera:
+            return external_camera
+        return "Built-in Chamber Camera"
+
+    async def async_select_option(self, option: str) -> None:
+        """Set the external camera."""
+        # Update options list in case new cameras were added
+        self._update_options()
+        
+        if option == "Built-in Chamber Camera":
+            # Clear external camera to use built-in
+            self.coordinator.get_model().spaghetti_detector.set_external_camera_entity_id("")
+        else:
+            # Set the selected camera entity
+            self.coordinator.get_model().spaghetti_detector.set_external_camera_entity_id(option)
+        
+        self.async_write_ha_state()
