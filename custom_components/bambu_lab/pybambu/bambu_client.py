@@ -715,12 +715,20 @@ class BambuClient:
             # Extract base filename without extension and remove path components
             base_filename = os.path.splitext(os.path.basename(print_filename))[0]
             
+            # Pre-compute filename prefixes for matching
+            underscore_prefix = f"{base_filename}_"
+            dash_prefix = f"{base_filename}-"
+            
             # Directories to search for files
             # Include root directory and cache, plus timelapse and thumbnail subdirectories
             search_dirs = ['/', '/cache', '/timelapse', '/timelapse/thumbnail']
             
             deleted_files = []
             failed_deletions = []
+            
+            # FTP LIST format: -rw-r--r-- 1 user group size date time filename
+            # Minimum number of fields before filename starts
+            FTP_LIST_MIN_FIELDS = 9
             
             for directory in search_dirs:
                 try:
@@ -741,7 +749,7 @@ class BambuClient:
                             # Parse FTP LIST output to extract filename
                             # Format: -rw-r--r-- 1 user group size date time filename
                             parts = line.split()
-                            if len(parts) < 9:
+                            if len(parts) < FTP_LIST_MIN_FIELDS:
                                 # Unexpected format, skip this line
                                 continue
                             
@@ -756,8 +764,8 @@ class BambuClient:
                             # 2. Starts with base_filename followed by underscore or dash
                             #    (e.g., "model" matches "model_plate_1.gcode" or "model-thumbnail.jpg")
                             if (filename_without_ext == base_filename or 
-                                filename_without_ext.startswith(f"{base_filename}_") or
-                                filename_without_ext.startswith(f"{base_filename}-")):
+                                filename_without_ext.startswith(underscore_prefix) or
+                                filename_without_ext.startswith(dash_prefix)):
                                 
                                 # Construct path properly to handle root directory
                                 if directory == '/':

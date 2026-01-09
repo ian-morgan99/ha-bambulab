@@ -856,6 +856,7 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             cleanup_thread = threading.Thread(
                 target=self.client.delete_print_files_via_ftp,
                 args=(print_filename,),
+                name=f"IncognitoCleanup-{print_filename}",
                 daemon=False
             )
             cleanup_thread.start()
