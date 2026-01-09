@@ -3702,6 +3702,16 @@ class SpaghettiDetector:
         self._external_image_callback = None  # Callback to fetch image from external entity
         self._pending_external_layer = None  # Pending layer number for external camera analysis
         
+        # Last analyzed image storage
+        self._last_analyzed_image = bytearray()  # Store last image used for detection
+        self._last_analyzed_timestamp = None  # Timestamp of last analysis
+        self._last_analyzed_layer_num = 0  # Layer number of last analysis
+        
+        # Pause on spaghetti detection
+        self._pause_on_spaghetti = False  # Whether to pause print on detection
+        self._pause_layer_threshold = 5  # Number of consecutive layers before pausing
+        self._consecutive_alert_layers = 0  # Track consecutive layers with alerts
+        
     def enable(self):
         """Enable spaghetti detection."""
         self._enabled = True
@@ -3739,6 +3749,7 @@ class SpaghettiDetector:
         self._layer_history = []
         self._last_analyzed_layer = -1
         self._monitoring_active = False
+        self._consecutive_alert_layers = 0  # Reset consecutive alert counter
         # Reset dual camera tracking
         self._internal_layer_history = []
         self._external_layer_history = []
@@ -3989,11 +4000,23 @@ class SpaghettiDetector:
         
         This method should be called when an anomaly is detected to set the alert state
         and start the cooldown period. It encapsulates the alert triggering logic.
+        Also tracks consecutive alerts for pause-on-spaghetti functionality.
         """
         if not self._alert_triggered:
             self._alert_triggered = True
             self._cooldown_counter = self._alert_cooldown_layers
             self._client.callback("event_spaghetti_detected")
+        
+        # Track consecutive alert layers for pause functionality
+        self._consecutive_alert_layers += 1
+        LOGGER.debug(f"Consecutive alert layers: {self._consecutive_alert_layers}/{self._pause_layer_threshold}")
+        
+        # Check if we should pause the print
+        if self._pause_on_spaghetti and self._consecutive_alert_layers >= self._pause_layer_threshold:
+            LOGGER.warning(f"Spaghetti detected for {self._consecutive_alert_layers} consecutive layers - pausing print")
+            self._client.callback("event_spaghetti_pause_triggered")
+            # Reset counter after triggering pause to avoid repeated pause attempts
+            self._consecutive_alert_layers = 0
     
     def _analyze_camera_image(self, image_bytes: bytearray, current_layer: int, 
                              camera_type: str, history: list, baseline_edge_map, 
@@ -4124,6 +4147,15 @@ class SpaghettiDetector:
             self._internal_previous_edge_density = new_previous
             self._internal_layers_since_baseline = new_layers_since
             self._internal_layer_history = updated_history
+            
+            # Save last analyzed image
+            self._last_analyzed_image = image_bytes.copy() if image_bytes else bytearray()
+            self._last_analyzed_timestamp = datetime.now()
+            self._last_analyzed_layer_num = current_layer
+            
+            # Reset consecutive alert counter if no anomaly detected
+            if not anomaly:
+                self._consecutive_alert_layers = 0
             
             return anomaly
             
@@ -4472,6 +4504,42 @@ class SpaghettiDetector:
         if not self._external_layer_history:
             return 0.0
         return sum(d for _, d, _ in self._external_layer_history) / len(self._external_layer_history)
+    
+    @property
+    def last_analyzed_image(self) -> bytearray:
+        """Return the last image used for spaghetti detection."""
+        return self._last_analyzed_image.copy() if self._last_analyzed_image else bytearray()
+    
+    @property
+    def last_analyzed_timestamp(self) -> datetime:
+        """Return the timestamp of the last analyzed image."""
+        return self._last_analyzed_timestamp
+    
+    @property
+    def last_analyzed_layer(self) -> int:
+        """Return the layer number of the last analyzed image."""
+        return self._last_analyzed_layer_num
+    
+    @property
+    def pause_on_spaghetti(self) -> bool:
+        """Return True if pause on spaghetti detection is enabled."""
+        return self._pause_on_spaghetti
+    
+    def set_pause_on_spaghetti(self, value: bool):
+        """Set whether to pause print on spaghetti detection."""
+        self._pause_on_spaghetti = value
+        LOGGER.info(f"Pause on spaghetti detection {'enabled' if value else 'disabled'}")
+    
+    @property
+    def pause_layer_threshold(self) -> int:
+        """Get the number of consecutive layers before pausing."""
+        return self._pause_layer_threshold
+    
+    def set_pause_layer_threshold(self, value: int):
+        """Set the number of consecutive layers before pausing."""
+        if value > 0:
+            self._pause_layer_threshold = value
+            LOGGER.debug(f"Pause layer threshold set to {value} layers")
 
 
 @dataclass

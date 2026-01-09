@@ -152,6 +152,9 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
         
         elif event == "event_layer_change_external_camera":
             self._handle_external_camera_layer_change()
+        
+        elif event == "event_spaghetti_pause_triggered":
+            self._handle_spaghetti_pause()
 
         elif event == "event_printer_error":
             self._update_printer_error()
@@ -752,6 +755,19 @@ class BambuDataUpdateCoordinator(DataUpdateCoordinator):
             asyncio.create_task(self._fetch_and_analyze_external_camera(entity_id, layer))
         except Exception as e:
             LOGGER.error(f"Error handling external camera layer change: {e}", exc_info=True)
+    
+    def _handle_spaghetti_pause(self):
+        """Handle pause on spaghetti detection."""
+        try:
+            LOGGER.info("Pausing print due to spaghetti detection threshold")
+            # Send pause command to printer
+            from .pybambu.commands import PAUSE
+            self.client.publish(PAUSE)
+            
+            # Publish device trigger event for automations
+            self.PublishDeviceTriggerEvent("event_spaghetti_pause_triggered")
+        except Exception as e:
+            LOGGER.error(f"Error pausing print on spaghetti detection: {e}", exc_info=True)
     
     async def _fetch_and_analyze_external_camera(self, entity_id: str, layer: int):
         """Fetch image from external camera entity and analyze it.

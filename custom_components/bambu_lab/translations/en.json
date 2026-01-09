@@ -308,6 +308,9 @@
       },
       "pick_image": {
         "name": "Pick image"
+      },
+      "spaghetti_last_image": {
+        "name": "Spaghetti Detection Last Image"
       }
     },
     "light": {
@@ -345,6 +348,9 @@
       },
       "spaghetti_rate_window_size": {
         "name": "Spaghetti Rate Window Size"
+      },
+      "spaghetti_pause_layer_threshold": {
+        "name": "Spaghetti Pause Layer Threshold"
       }
     },
     "select": {
@@ -927,6 +933,9 @@
       },
       "spaghetti_use_internal_camera": {
         "name": "Use Internal Camera for Spaghetti Detection"
+      },
+      "spaghetti_pause_on_detection": {
+        "name": "Pause on Spaghetti Detection"
       }
     },
     "update": {
