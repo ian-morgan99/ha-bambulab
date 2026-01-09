@@ -81,8 +81,9 @@ class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
         printer = self.coordinator.get_model().info
         self._attr_unique_id = f"{printer.serial}_external_camera"
         
-        # Initialize with built-in camera option
-        self._update_options()
+        # Start with minimal options - will be populated lazily
+        self._attr_options = ["Built-in Chamber Camera"]
+        self._options_loaded = False
 
     def _update_options(self) -> None:
         """Update the list of available camera options."""
@@ -97,6 +98,15 @@ class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
                     options.append(state.entity_id)
         
         self._attr_options = sorted(options)
+        self._options_loaded = True
+
+    @property
+    def options(self) -> list[str]:
+        """Return the list of available options."""
+        # Lazy load options on first access
+        if not self._options_loaded:
+            self._update_options()
+        return self._attr_options
 
     @property
     def current_option(self) -> str:
@@ -108,9 +118,6 @@ class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Set the external camera."""
-        # Update options list in case new cameras were added
-        self._update_options()
-        
         if option == "Built-in Chamber Camera":
             # Clear external camera to use built-in
             self.coordinator.get_model().spaghetti_detector.set_external_camera_entity_id("")

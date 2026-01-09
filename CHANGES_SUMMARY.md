@@ -1,5 +1,22 @@
 # Summary of Changes for FTPS and Camera Improvements
 
+## ⚠️ IMPORTANT: Installation Instructions
+
+**After updating to this branch, you MUST restart Home Assistant for the changes to take effect.**
+
+The Python code changes will not be loaded until Home Assistant is restarted. Simply reloading the integration is not sufficient.
+
+### How to Restart Home Assistant:
+1. Go to Developer Tools → Services
+2. Search for "Homeassistant: Restart"
+3. Click "Call Service"
+4. Wait for Home Assistant to come back online
+
+**Or use the command line:**
+```bash
+ha core restart
+```
+
 ## Changes Made
 
 ### 1. Added `/ipcam` Folder to Search Paths
@@ -24,6 +41,11 @@
 
 **Why**: Better debugging information when folders don't exist or have permission issues
 
+**Understanding the New Error Messages**:
+- Old: `No image files found in /timelapse, /cache, /`
+- New: `No image files found in /ipcam, /timelapse, /cache (Failed to access: /)`
+- If you still see the old message format, you need to restart Home Assistant
+
 ### 3. External Camera Dropdown Selector
 
 **Files Modified**: 
@@ -32,7 +54,7 @@
 
 **Changes**:
 - Added new `BambuLabExternalCameraSelect` entity
-- Dropdown automatically populated with all available `camera.*` and `image.*` entities
+- Dropdown automatically populated with all available `camera.*` and `image.*` entities (lazy-loaded for performance)
 - Option for "Built-in Chamber Camera" (default)
 - Replaces the manual text entry with user-friendly dropdown
 

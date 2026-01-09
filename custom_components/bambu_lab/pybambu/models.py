@@ -2170,8 +2170,8 @@ class PrintJob:
             LOGGER.debug(f"Connected to FTP for image search (index: {image_index})")
             
             # Search paths to look for images
-            # Prioritize /ipcam for active recordings, then timelapse, then cache
-            search_paths = ['/ipcam', '/timelapse', '/cache', '/']
+            # Prioritize /ipcam for active recordings, then image folder, timelapse, then cache
+            search_paths = ['/ipcam', '/image', '/timelapse', '/cache', '/']
             image_extensions = ['.jpg', '.jpeg', '.png']
             
             all_images = []
@@ -2282,8 +2282,8 @@ class PrintJob:
             LOGGER.debug(f"Connected to FTP for video search (index: {video_index}, offset: {frame_offset}s)")
             
             # Search paths for videos
-            # Prioritize /ipcam for active recordings, then timelapse, then cache
-            search_paths = ['/ipcam', '/timelapse', '/cache', '/']
+            # Prioritize /ipcam for active recordings, then image folder, timelapse, then cache
+            search_paths = ['/ipcam', '/image', '/timelapse', '/cache', '/']
             video_extensions = ['.avi', '.mpg', '.mpeg', '.mp4']
             
             all_videos = []
