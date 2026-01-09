@@ -66,6 +66,13 @@ SPAGHETTI_USE_INTERNAL_CAMERA_SWITCH_DESCRIPTION = SwitchEntityDescription(
     entity_category=EntityCategory.CONFIG,
 )
 
+SPAGHETTI_PAUSE_ON_DETECTION_SWITCH_DESCRIPTION = SwitchEntityDescription(
+    key="spaghetti_pause_on_detection",
+    icon="mdi:pause-circle",
+    translation_key="spaghetti_pause_on_detection",
+    entity_category=EntityCategory.CONFIG,
+)
+
 INCOGNITO_MODE_SWITCH_DESCRIPTION = SwitchEntityDescription(
     key="incognito_mode",
     icon="mdi:incognito",
@@ -104,6 +111,7 @@ async def async_setup_entry(
         async_add_entities([BambuLabCameraImageSwitch(coordinator, entry)])
         async_add_entities([BambuLabSpaghettiDetectionSwitch(coordinator, entry)])
         async_add_entities([BambuLabSpaghettiUseInternalCameraSwitch(coordinator, entry)])
+        async_add_entities([BambuLabSpaghettiPauseOnDetectionSwitch(coordinator, entry)])
 
     if not coordinator.get_model().print_fun.mqtt_signature_required:
         if coordinator.get_model().supports_feature(Features.PROMPT_SOUND):
@@ -365,6 +373,65 @@ class BambuLabSpaghettiUseInternalCameraSwitch(BambuLabSwitch):
             LOGGER.error(f"Spaghetti detector not available: {e}")
         except Exception as e:
             LOGGER.error(f"Unexpected error disabling internal camera: {e}", exc_info=True)
+
+
+class BambuLabSpaghettiPauseOnDetectionSwitch(BambuLabSwitch):
+    """BambuLab Pause on Spaghetti Detection Switch"""
+
+    entity_description = SPAGHETTI_PAUSE_ON_DETECTION_SWITCH_DESCRIPTION
+
+    def __init__(
+            self,
+            coordinator: BambuDataUpdateCoordinator,
+            config_entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, config_entry)
+        try:
+            self._attr_is_on = self.coordinator.get_model().spaghetti_detector.pause_on_spaghetti
+        except AttributeError as e:
+            LOGGER.warning(f"Spaghetti detector not available: {e}")
+            self._attr_is_on = False
+        except Exception as e:
+            LOGGER.error(f"Unexpected error initializing pause on detection switch: {e}", exc_info=True)
+            self._attr_is_on = False
+        
+    @property
+    def icon(self) -> str:
+        """Return the icon for the switch."""
+        return "mdi:pause-circle" if self.is_on else "mdi:pause-circle-outline"
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if entity is on."""
+        try:
+            return self.coordinator.get_model().spaghetti_detector.pause_on_spaghetti
+        except AttributeError:
+            return self._attr_is_on
+        except Exception as e:
+            LOGGER.error(f"Unexpected error checking pause on detection state: {e}", exc_info=True)
+            return self._attr_is_on
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable pause on spaghetti detection."""
+        try:
+            self.coordinator.get_model().spaghetti_detector.set_pause_on_spaghetti(True)
+            self._attr_is_on = True
+            self.async_write_ha_state()
+        except AttributeError as e:
+            LOGGER.error(f"Spaghetti detector not available: {e}")
+        except Exception as e:
+            LOGGER.error(f"Unexpected error enabling pause on detection: {e}", exc_info=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable pause on spaghetti detection."""
+        try:
+            self.coordinator.get_model().spaghetti_detector.set_pause_on_spaghetti(False)
+            self._attr_is_on = False
+            self.async_write_ha_state()
+        except AttributeError as e:
+            LOGGER.error(f"Spaghetti detector not available: {e}")
+        except Exception as e:
+            LOGGER.error(f"Unexpected error disabling pause on detection: {e}", exc_info=True)
 
 
 class BambuLabFTPSSwitch(BambuLabSwitch):

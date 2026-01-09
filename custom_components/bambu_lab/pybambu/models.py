@@ -3661,26 +3661,20 @@ class SpaghettiDetector:
     def __init__(self, client):
         self._client = client
         self._enabled = True
-        self._baseline_image = None
-        self._baseline_edge_map = None
-        self._previous_edge_density = 0.0
         self._alert_triggered = False
         self._current_layer = 0
-        self._layers_since_baseline = 0
-        self._baseline_update_interval = 5  # Update baseline every N layers
+        self._alert_cooldown_layers = 3  # Don't re-alert for N layers
+        self._cooldown_counter = 0
         
         # Detection thresholds
         self._edge_density_threshold = 0.15  # 15% increase in edge density
         self._sudden_growth_threshold = 0.25  # 25% sudden increase
-        self._alert_cooldown_layers = 3  # Don't re-alert for N layers
-        self._cooldown_counter = 0
+        self._baseline_update_interval = 5  # Update baseline every N layers
         
         # Test and monitoring state
         self._test_mode_data = None  # Stores results from manual test
         self._monitoring_active = False  # True when print is running
-        self._layer_history = []  # List of (layer, edge_density, timestamp) tuples - combined/primary
         self._max_history_size = 50  # Keep last 50 layer measurements
-        self._last_analyzed_layer = -1  # Track last layer we analyzed
         
         # Dual camera tracking
         self._internal_layer_history = []  # List of (layer, edge_density, timestamp) for internal camera
@@ -3701,6 +3695,17 @@ class SpaghettiDetector:
         self._external_camera_entity_id = ""  # Entity ID of external camera to use
         self._external_image_callback = None  # Callback to fetch image from external entity
         self._pending_external_layer = None  # Pending layer number for external camera analysis
+        
+        # Last analyzed image storage
+        self._last_analyzed_image = bytearray()  # Store last image used for detection
+        self._last_analyzed_timestamp = None  # Timestamp of last analysis
+        self._last_analyzed_layer_num = 0  # Layer number of last analysis
+        self._last_analyzed_edge_density = 0.0  # Edge density of last analysis
+        
+        # Pause on spaghetti detection
+        self._pause_on_spaghetti = False  # Whether to pause print on detection
+        self._pause_layer_threshold = 5  # Number of consecutive layers before pausing
+        self._consecutive_alert_layers = 0  # Track consecutive layers with alerts
         
     def enable(self):
         """Enable spaghetti detection."""
@@ -3729,16 +3734,11 @@ class SpaghettiDetector:
         
     def reset(self):
         """Reset the detector state (e.g., when a new print starts)."""
-        self._baseline_image = None
-        self._baseline_edge_map = None
-        self._previous_edge_density = 0.0
         self._alert_triggered = False
         self._current_layer = 0
-        self._layers_since_baseline = 0
         self._cooldown_counter = 0
-        self._layer_history = []
-        self._last_analyzed_layer = -1
         self._monitoring_active = False
+        self._consecutive_alert_layers = 0  # Reset consecutive alert counter
         # Reset dual camera tracking
         self._internal_layer_history = []
         self._external_layer_history = []
@@ -3748,6 +3748,11 @@ class SpaghettiDetector:
         self._external_previous_edge_density = 0.0
         self._internal_layers_since_baseline = 0
         self._external_layers_since_baseline = 0
+        # Reset last analyzed image data to avoid stale information across prints
+        self._last_analyzed_image = bytearray()
+        self._last_analyzed_timestamp = None
+        self._last_analyzed_layer_num = 0
+        self._last_analyzed_edge_density = 0.0
         LOGGER.debug("Spaghetti detector reset")
         
     def _convert_to_grayscale(self, image_bytes: bytearray) -> Image.Image:
@@ -3826,78 +3831,6 @@ class SpaghettiDetector:
             return True
             
         return False
-        
-    def analyze_image_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
-        """Analyze image on layer change and return True if spaghetti detected.
-        
-        Args:
-            image_bytes: Raw JPEG image bytes from camera
-            current_layer: Current layer number
-            
-        Returns:
-            True if potential spaghetti/failure detected, False otherwise
-        """
-        if not self._enabled or len(image_bytes) == 0:
-            return False
-        
-        try:
-            # Update layer tracking
-            self._current_layer = current_layer
-            self._layers_since_baseline += 1
-            
-            # Cooldown handling
-            if self._cooldown_counter > 0:
-                self._cooldown_counter -= 1
-                return self._alert_triggered  # Keep existing alert state during cooldown
-                
-            # Convert image to grayscale
-            gray_image = self._convert_to_grayscale(image_bytes)
-            if gray_image is None:
-                return False
-                
-            # Compute edge map
-            edge_map = self._compute_edge_map(gray_image)
-            if edge_map is None:
-                return False
-                
-            # Calculate edge density
-            current_density = self._calculate_edge_density(edge_map)
-            
-            # Initialize baseline if needed or update periodically
-            if self._baseline_edge_map is None or self._layers_since_baseline >= self._baseline_update_interval:
-                self._baseline_image = gray_image
-                self._baseline_edge_map = edge_map
-                baseline_density = self._calculate_edge_density(self._baseline_edge_map)
-                self._previous_edge_density = baseline_density
-                self._layers_since_baseline = 0
-                LOGGER.debug(f"Spaghetti detector baseline updated at layer {current_layer}, density={baseline_density:.4f}")
-                return False
-                
-            # Calculate baseline density
-            baseline_density = self._calculate_edge_density(self._baseline_edge_map)
-            
-            # Detect anomaly
-            anomaly_detected = self._detect_anomaly(current_density, baseline_density, self._previous_edge_density)
-            
-            # Update state
-            self._previous_edge_density = current_density
-            
-            # Trigger alert if anomaly detected
-            if anomaly_detected and not self._alert_triggered:
-                self._alert_triggered = True
-                self._cooldown_counter = self._alert_cooldown_layers
-                LOGGER.warning(f"Spaghetti detection ALERT at layer {current_layer}: edge_density={current_density:.4f}, baseline={baseline_density:.4f}")
-                self._client.callback("event_spaghetti_detected")
-                return True
-                
-            # Clear alert if conditions normalize (optional - could keep alert until print ends)
-            # For now, we keep the alert state until reset or cooldown ends
-            
-            return self._alert_triggered
-        except Exception as e:
-            LOGGER.error(f"Error in spaghetti detection analysis: {e}", exc_info=True)
-            # On error, don't trigger alert and return current state
-            return self._alert_triggered
     
     def test_analyze_image(self, image_bytes: bytearray) -> dict:
         """Test method to analyze a single image and return detailed metrics.
@@ -3989,11 +3922,23 @@ class SpaghettiDetector:
         
         This method should be called when an anomaly is detected to set the alert state
         and start the cooldown period. It encapsulates the alert triggering logic.
+        Also tracks consecutive alerts for pause-on-spaghetti functionality.
         """
         if not self._alert_triggered:
             self._alert_triggered = True
             self._cooldown_counter = self._alert_cooldown_layers
             self._client.callback("event_spaghetti_detected")
+        
+        # Track consecutive alert layers for pause functionality
+        self._consecutive_alert_layers += 1
+        LOGGER.debug(f"Consecutive alert layers: {self._consecutive_alert_layers}/{self._pause_layer_threshold}")
+        
+        # Check if we should pause the print
+        if self._pause_on_spaghetti and self._consecutive_alert_layers >= self._pause_layer_threshold:
+            LOGGER.warning(f"Spaghetti detected for {self._consecutive_alert_layers} consecutive layers - pausing print")
+            self._client.callback("event_spaghetti_pause_triggered")
+            # Reset counter after triggering pause to avoid repeated pause attempts
+            self._consecutive_alert_layers = 0
     
     def _analyze_camera_image(self, image_bytes: bytearray, current_layer: int, 
                              camera_type: str, history: list, baseline_edge_map, 
@@ -4125,6 +4070,16 @@ class SpaghettiDetector:
             self._internal_layers_since_baseline = new_layers_since
             self._internal_layer_history = updated_history
             
+            # Save last analyzed image with its edge density
+            self._last_analyzed_image = image_bytes.copy() if image_bytes else bytearray()
+            self._last_analyzed_timestamp = datetime.now()
+            self._last_analyzed_layer_num = current_layer
+            self._last_analyzed_edge_density = current_density
+            
+            # Reset consecutive alert counter if no anomaly detected
+            if not anomaly:
+                self._consecutive_alert_layers = 0
+            
             return anomaly
             
         except Exception as e:
@@ -4170,91 +4125,6 @@ class SpaghettiDetector:
             return False
     
     
-    def analyze_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
-        """Enhanced layer change analysis with historical tracking and rate detection.
-        
-        This method extends the base analyze_image_on_layer_change with:
-        - Historical tracking of edge density over layers
-        - Rate of change calculation
-        - More sophisticated alerting based on trends
-        
-        Args:
-            image_bytes: Raw image bytes from camera
-            current_layer: Current layer number
-            
-        Returns:
-            True if potential spaghetti/failure detected, False otherwise
-        """
-        if not self._enabled or not self._monitoring_active:
-            return False
-        
-        # Only analyze if we moved to a new layer
-        if current_layer <= self._last_analyzed_layer:
-            return self._alert_triggered
-        
-        self._last_analyzed_layer = current_layer
-        
-        try:
-            # Perform base analysis
-            base_result = self.analyze_image_on_layer_change(image_bytes, current_layer)
-            
-            # Calculate current edge density for historical tracking
-            gray_image = self._convert_to_grayscale(image_bytes)
-            if gray_image is not None:
-                edge_map = self._compute_edge_map(gray_image)
-                if edge_map is not None:
-                    current_density = self._calculate_edge_density(edge_map)
-                    
-                    # Add to history
-                    timestamp = datetime.now()
-                    self._layer_history.append((current_layer, current_density, timestamp))
-                    
-                    # Trim history to max size
-                    if len(self._layer_history) > self._max_history_size:
-                        self._layer_history = self._layer_history[-self._max_history_size:]
-                    
-                    # Calculate rate of change if we have enough history
-                    if len(self._layer_history) >= self._rate_window_size:
-                        rate_alert = self._check_rate_of_change()
-                        if rate_alert and not self._alert_triggered:
-                            self._alert_triggered = True
-                            self._cooldown_counter = self._alert_cooldown_layers
-                            LOGGER.warning(f"Spaghetti detection RATE ALERT at layer {current_layer}: rapid increase detected")
-                            self._client.callback("event_spaghetti_detected")
-                            return True
-            
-            return base_result
-            
-        except Exception as e:
-            LOGGER.error(f"Error in analyze_on_layer_change: {e}", exc_info=True)
-            return self._alert_triggered
-    
-    def _check_rate_of_change(self) -> bool:
-        """Check if rate of change in edge density exceeds threshold.
-        
-        Returns:
-            True if rate of change is anomalous, False otherwise
-        """
-        if len(self._layer_history) < self._rate_window_size:
-            return False
-        
-        # Get the last N measurements
-        recent = self._layer_history[-self._rate_window_size:]
-        
-        # Calculate average density at start and end of window
-        start_density = sum(d for _, d, _ in recent[:2]) / 2
-        end_density = sum(d for _, d, _ in recent[-2:]) / 2
-        
-        if start_density == 0:
-            return False
-        
-        # Calculate relative change
-        rate = (end_density - start_density) / start_density
-        
-        LOGGER.debug(f"Rate of change: {rate:.3f} over {self._rate_window_size} layers (threshold: {self._rate_threshold})")
-        
-        return rate > self._rate_threshold
-    
     @property
     def test_mode_data(self) -> dict:
         """Get the last test analysis results."""
@@ -4267,30 +4137,40 @@ class SpaghettiDetector:
     
     @property
     def layer_history(self) -> list:
-        """Return the historical layer data."""
-        return self._layer_history.copy()
+        """Return the historical layer data (combined from all cameras)."""
+        # Combine internal and external histories
+        combined = self._internal_layer_history + self._external_layer_history
+        # Sort by layer number
+        combined.sort(key=lambda x: x[0])
+        return combined
     
     @property
     def current_edge_density(self) -> float:
-        """Return the most recent edge density measurement."""
-        if self._layer_history:
-            return self._layer_history[-1][1]
+        """Return the most recent edge density measurement (from internal camera if available, else external)."""
+        if self._internal_layer_history:
+            return self._internal_layer_history[-1][1]
+        elif self._external_layer_history:
+            return self._external_layer_history[-1][1]
         return 0.0
     
     @property
     def average_edge_density(self) -> float:
-        """Return the average edge density over all history."""
-        if not self._layer_history:
+        """Return the average edge density over all history (combined)."""
+        all_densities = [d for _, d, _ in self._internal_layer_history] + [d for _, d, _ in self._external_layer_history]
+        if not all_densities:
             return 0.0
-        return sum(d for _, d, _ in self._layer_history) / len(self._layer_history)
+        return sum(all_densities) / len(all_densities)
     
     @property
     def rate_of_change(self) -> float:
-        """Return the current rate of change in edge density."""
-        if len(self._layer_history) < self._rate_window_size:
+        """Return the current rate of change in edge density (from internal camera if available)."""
+        # Use internal camera history if available, otherwise external
+        history = self._internal_layer_history if self._internal_layer_history else self._external_layer_history
+        
+        if len(history) < self._rate_window_size:
             return 0.0
         
-        recent = self._layer_history[-self._rate_window_size:]
+        recent = history[-self._rate_window_size:]
         start_density = sum(d for _, d, _ in recent[:2]) / 2
         end_density = sum(d for _, d, _ in recent[-2:]) / 2
         
@@ -4472,6 +4352,47 @@ class SpaghettiDetector:
         if not self._external_layer_history:
             return 0.0
         return sum(d for _, d, _ in self._external_layer_history) / len(self._external_layer_history)
+    
+    @property
+    def last_analyzed_image(self) -> bytearray:
+        """Return the last image used for spaghetti detection."""
+        return self._last_analyzed_image.copy() if self._last_analyzed_image else bytearray()
+    
+    @property
+    def last_analyzed_timestamp(self) -> datetime:
+        """Return the timestamp of the last analyzed image."""
+        return self._last_analyzed_timestamp
+    
+    @property
+    def last_analyzed_layer(self) -> int:
+        """Return the layer number of the last analyzed image."""
+        return self._last_analyzed_layer_num
+    
+    @property
+    def last_analyzed_edge_density(self) -> float:
+        """Return the edge density of the last analyzed image."""
+        return self._last_analyzed_edge_density
+    
+    @property
+    def pause_on_spaghetti(self) -> bool:
+        """Return True if pause on spaghetti detection is enabled."""
+        return self._pause_on_spaghetti
+    
+    def set_pause_on_spaghetti(self, value: bool):
+        """Set whether to pause print on spaghetti detection."""
+        self._pause_on_spaghetti = value
+        LOGGER.info(f"Pause on spaghetti detection {'enabled' if value else 'disabled'}")
+    
+    @property
+    def pause_layer_threshold(self) -> int:
+        """Get the number of consecutive layers before pausing."""
+        return self._pause_layer_threshold
+    
+    def set_pause_layer_threshold(self, value: int):
+        """Set the number of consecutive layers before pausing."""
+        if value > 0:
+            self._pause_layer_threshold = value
+            LOGGER.debug(f"Pause layer threshold set to {value} layers")
 
 
 @dataclass

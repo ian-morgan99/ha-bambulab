@@ -139,6 +139,18 @@ SPAGHETTI_DETECTION_NUMBERS: tuple[BambuLabNumberEntityDescription, ...] = (
         value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.rate_window_size,
         set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_rate_window_size(int(value)),
     ),
+    BambuLabNumberEntityDescription(
+        key="spaghetti_pause_layer_threshold",
+        translation_key="spaghetti_pause_layer_threshold",
+        icon="mdi:layers",
+        mode=NumberMode.BOX,
+        native_min_value=1,
+        native_max_value=20,
+        native_step=1,
+        entity_category=EntityCategory.CONFIG,
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.pause_layer_threshold,
+        set_value_fn=lambda self, value: self.coordinator.get_model().spaghetti_detector.set_pause_layer_threshold(int(value)),
+    ),
 )
 
 

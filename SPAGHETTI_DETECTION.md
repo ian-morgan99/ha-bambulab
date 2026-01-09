@@ -17,10 +17,10 @@ The system uses edge detection algorithms to identify sudden changes in the prin
 
 **Entity ID**: `button.<printer_name>_test_spaghetti_detection`
 
-**Purpose**: Manually test the edge detection algorithm on a video frame from FTPS.
+**Purpose**: Manually test the edge detection algorithm on the current streaming camera image.
 
 **What it does**:
-1. Retrieves a video frame using the configured FTPS test parameters (video index and frame offset)
+1. Retrieves the current chamber image from the live streaming feed
 2. Analyzes the frame using edge detection algorithms
 3. Calculates edge density metrics
 4. Displays comprehensive results in a Home Assistant notification
@@ -31,8 +31,9 @@ The system uses edge detection algorithms to identify sudden changes in the prin
 - Image dimensions
 - Visual interpretation guidelines
 - The analyzed frame image
+- Current layer information
 
-**Use case**: Validate that edge detection works correctly and understand what "normal" edge density looks like for your printer and prints.
+**Use case**: Validate that edge detection works correctly and understand what "normal" edge density looks like for your printer and prints in real-time.
 
 ### 2. Sensors
 
@@ -139,6 +140,15 @@ A value of 0.10 means a 10% increase in edge density over the rate window will t
 
 A larger window is more stable but slower to detect issues. A smaller window is more sensitive but may have false positives.
 
+#### Spaghetti Pause Layer Threshold
+**Entity ID**: `number.<printer_name>_spaghetti_pause_layer_threshold`
+
+**Range**: 1 to 20 layers (default: 5)
+
+**Purpose**: Set how many consecutive layers must trigger spaghetti detection before the print is automatically paused (when pause on spaghetti is enabled).
+
+A higher value reduces false positives but may delay response. A lower value is more sensitive but may pause unnecessarily.
+
 ### 4. Spaghetti Detection Switches
 
 #### Main Spaghetti Detection Switch
@@ -164,6 +174,49 @@ When enabled, monitoring will automatically start when a print begins and stop w
 - When both internal and external cameras are enabled, the system tracks edge density from both sources independently.
 - Alerts can be triggered by either camera if anomalies are detected.
 - Even with internal camera disabled, you can still use an external camera for detection.
+
+#### Pause on Spaghetti Detection Switch
+**Entity ID**: `switch.<printer_name>_spaghetti_pause_on_detection`
+
+**Purpose**: Enable automatic pausing of prints when spaghetti detection threshold is exceeded.
+
+**Default**: Disabled (OFF)
+
+**How it works**:
+- When enabled, the system tracks consecutive layers where spaghetti is detected
+- If spaghetti is detected for the number of consecutive layers set in the Pause Layer Threshold (default: 5), the print is automatically paused
+- The counter resets when a layer passes without spaghetti detection
+- A device trigger event `event_spaghetti_pause_triggered` is fired when a print is paused
+
+**Use Cases**:
+- **Automatic intervention**: Stop prints immediately when spaghetti is reliably detected
+- **Reduce waste**: Minimize filament waste by stopping failed prints early
+- **Unattended printing**: Safer for long prints when you can't monitor constantly
+
+**Important Notes**:
+- Set an appropriate pause layer threshold to avoid false positives
+- The print must be manually resumed after pausing
+- Consider testing with higher threshold values first to ensure reliability
+
+### 5. Image Entities
+
+#### Spaghetti Detection Last Image
+**Entity ID**: `image.<printer_name>_spaghetti_last_image`
+
+**Purpose**: Display the last image analyzed by the spaghetti detection system.
+
+**Attributes**:
+- `layer_number`: The layer number when this image was analyzed
+- `edge_density`: The edge density calculated for this image
+
+**Use Cases**:
+- **Visual verification**: See exactly what image was used for the last detection
+- **Debugging**: Understand why an alert was or wasn't triggered
+- **History**: Keep a visual record of detection events
+
+**Availability**: Updates automatically on each layer change during active monitoring.
+
+### 6. External Camera Support
 
 ## Dual Camera Tracking
 
@@ -233,27 +286,26 @@ hours_to_show: 2
 
 ## How It Works
 
-### Manual Testing (Phase 1)
+### Manual Testing
 
-1. **Configure FTPS Test Parameters**:
-   - Set `number.<printer_name>_ftps_test_video_index` to select which video (0=latest)
-   - Set `number.<printer_name>_ftps_test_frame_offset` to choose frame position (seconds from end)
-
-2. **Run Test**:
+1. **Run Test**:
    - Press `button.<printer_name>_test_spaghetti_detection`
+   - The system analyzes the current live camera image from the streaming feed
+   - **Note**: The streaming feed is available whenever the printer is powered on and connected, regardless of whether a print is running
    - Wait for the notification with results
 
-3. **Interpret Results**:
+2. **Interpret Results**:
    - Check the edge density value
    - Compare against interpretation guidelines
    - View the analyzed frame to see what was detected
+   - Note the current layer information for context (will show 0/0 when no print is active)
 
-4. **Compare Across Images**:
-   - Adjust the video index or frame offset
-   - Run the test again
-   - Compare edge density values between different frames
+3. **Repeat as Needed**:
+   - Run the test at different times during a print
+   - Compare edge density values at different layers
+   - Build understanding of normal vs. anomalous values for your prints
 
-### Automatic Monitoring (Phase 3)
+### Automatic Monitoring
 
 1. **Enable Detection**:
    - Turn on `switch.<printer_name>_spaghetti_detection`
@@ -343,6 +395,8 @@ automation:
 
 ### Example: Pause Print on Detection
 
+Note: You can use the built-in Pause on Spaghetti switch instead of this automation. This example is provided for custom automation scenarios.
+
 ```yaml
 automation:
   - alias: "Pause Print on Spaghetti"
@@ -354,6 +408,31 @@ automation:
       - service: button.press
         target:
           entity_id: button.bambu_lab_p1p_pause
+```
+
+### Example: Custom Pause with Notification
+
+```yaml
+automation:
+  - alias: "Pause and Notify on Spaghetti"
+    trigger:
+      - platform: event
+        event_type: bambu_lab
+        event_data:
+          type: event_spaghetti_pause_triggered
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Print Paused - Spaghetti Detected!"
+          message: "{{ trigger.event.data.device.name }} has been paused due to detected spaghetti for {{ states('number.bambu_lab_p1p_spaghetti_pause_layer_threshold') }} consecutive layers"
+          data:
+            tag: "bambu_spaghetti_pause"
+            priority: high
+            actions:
+              - action: "RESUME_PRINT"
+                title: "Resume Print"
+              - action: "CANCEL_PRINT"
+                title: "Cancel Print"
 ```
 
 ### Example: Monitor Edge Density Trend

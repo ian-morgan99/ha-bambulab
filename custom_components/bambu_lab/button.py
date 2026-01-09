@@ -343,26 +343,37 @@ class BambuLabTestSpaghettiDetectionButton(BambuLabButton):
     entity_description = TEST_SPAGHETTI_DETECTION_BUTTON_DESCRIPTION
 
     async def async_press(self) -> None:
-        """Test spaghetti detection on the last video frame."""
-        # First get the last video frame
-        result = await self.coordinator.data.print_job.async_get_last_video_frame()
+        """Test spaghetti detection on the current streaming camera image."""
+        # Get the current chamber image from the streaming feed
+        chamber_image = self.coordinator.get_model().chamber_image.get_image()
         
-        if not result["success"] or not result["image_data"]:
-            message = f"**Failed to Get Image**\n\n{result['message']}"
+        if not chamber_image or len(chamber_image) == 0:
+            message = f"""**Failed to Get Image**
+
+No chamber image available from the streaming camera feed.
+
+Please ensure:
+- The printer is powered on
+- The chamber camera is enabled
+- The camera feed is active"""
         else:
-            # Now analyze the frame with spaghetti detector
+            # Now analyze the current frame with spaghetti detector
             detector = self.coordinator.get_model().spaghetti_detector
-            analysis = detector.test_analyze_image(result["image_data"])
+            analysis = detector.test_analyze_image(chamber_image)
             
             if analysis["success"]:
                 # Convert image data to base64 for display in notification
-                image_base64 = base64.b64encode(result["image_data"]).decode('utf-8')
+                image_base64 = base64.b64encode(chamber_image).decode('utf-8')
+                
+                # Get image update time for context
+                last_update = self.coordinator.get_model().chamber_image.get_last_update_time()
+                update_time_str = last_update.strftime("%Y-%m-%d %H:%M:%S") if last_update else "Unknown"
                 
                 message = f"""**Spaghetti Detection Test Results**
 
-Video: `{result['video_path']}`
-Video Index: {result.get('video_index', 0)} of {result.get('total_videos', 'unknown')}
-Frame Offset: {result.get('frame_offset', 1)} seconds from end
+Source: Live streaming camera feed
+Last Updated: {update_time_str}
+Current Layer: {self.coordinator.get_model().print_job.current_layer} / {self.coordinator.get_model().print_job.total_layers}
 
 **Edge Detection Metrics:**
 - Edge Density: {analysis['edge_density']:.4f} ({analysis['edge_percentage']:.2f}%)
@@ -380,7 +391,7 @@ Frame Offset: {result.get('frame_offset', 1)} seconds from end
             else:
                 message = f"""**Spaghetti Detection Test Failed**
 
-Video: `{result.get('video_path', 'unknown')}`
+Source: Live streaming camera feed
 
 Analysis Error: {analysis.get('error', 'Unknown error')}
 """

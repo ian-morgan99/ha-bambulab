@@ -35,6 +35,12 @@ PICK_IMAGE_SENSOR = BambuLabSensorEntityDescription(
         value_fn=lambda self: self.coordinator.get_model().print_job.get_pick_image()
     )
 
+SPAGHETTI_LAST_IMAGE_SENSOR = BambuLabSensorEntityDescription(
+        key="spaghetti_last_image",
+        translation_key="spaghetti_last_image",
+        value_fn=lambda self: self.coordinator.get_model().spaghetti_detector.last_analyzed_image
+    )
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -51,11 +57,13 @@ async def async_setup_entry(
 
     cover_image = CoverImage(hass, coordinator, COVER_IMAGE_SENSOR)
     pick_image = PickImage(hass, coordinator, PICK_IMAGE_SENSOR)
-    async_add_entities([cover_image, pick_image])
+    spaghetti_last_image = SpaghettiLastImage(hass, coordinator, SPAGHETTI_LAST_IMAGE_SENSOR)
+    async_add_entities([cover_image, pick_image, spaghetti_last_image])
 
     if CHAMBER_IMAGE_SENSOR.exists_fn(coordinator):
         chamber_image = ChamberImage(hass, coordinator, CHAMBER_IMAGE_SENSOR)
         async_add_entities([chamber_image])
+
 
 
 class CoverImage(ImageEntity, BambuLabEntity):
@@ -146,3 +154,45 @@ class PickImage(ImageEntity, BambuLabEntity):
     @property
     def available(self) -> bool:
         return self.image() is not None
+
+
+class SpaghettiLastImage(ImageEntity, BambuLabEntity):
+    """Representation of the last image used for spaghetti detection."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: BambuDataUpdateCoordinator,
+        description: BambuLabSensorEntityDescription
+    ) -> None:
+        """Initialize the image entity."""
+        super().__init__(hass=hass)
+        BambuLabEntity.__init__(self, coordinator=coordinator)
+        self._attr_content_type = "image/jpeg"
+        self._image_filename = None
+        self.entity_description = description
+        printer = self.coordinator.get_model().info
+        self._attr_unique_id = f"{printer.serial}_{description.key}"
+
+    def image(self) -> bytes | None:
+        """Return bytes of image."""
+        img = self.coordinator.get_model().spaghetti_detector.last_analyzed_image
+        return bytes(img) if img and len(img) > 0 else None
+
+    @property
+    def image_last_updated(self) -> datetime | None:
+        """The time when the image was last updated."""
+        return self.coordinator.get_model().spaghetti_detector.last_analyzed_timestamp
+
+    @property
+    def available(self) -> bool:
+        """Return True if image is available."""
+        return self.image() is not None
+    
+    @property
+    def extra_state_attributes(self):
+        """Return extra attributes."""
+        return {
+            "layer_number": self.coordinator.get_model().spaghetti_detector.last_analyzed_layer,
+            "edge_density": round(self.coordinator.get_model().spaghetti_detector.last_analyzed_edge_density, 4),
+        }
