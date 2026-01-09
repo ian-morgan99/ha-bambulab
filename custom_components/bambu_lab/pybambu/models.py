@@ -4083,12 +4083,15 @@ class SpaghettiDetector:
     def analyze_internal_camera_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
         """Analyze internal camera image on layer change and track separately.
         
+        Performs both baseline anomaly detection and rate of change detection
+        to identify potential print failures.
+        
         Args:
             image_bytes: Raw image bytes from internal camera
             current_layer: Current layer number
             
         Returns:
-            True if potential spaghetti/failure detected, False otherwise
+            True if potential spaghetti/failure detected (via baseline or rate anomaly), False otherwise
         """
         if not self._enabled or not self._monitoring_active or not self._use_internal_camera:
             return False
@@ -4118,12 +4121,15 @@ class SpaghettiDetector:
     def analyze_external_camera_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
         """Analyze external camera image on layer change and track separately.
         
+        Performs both baseline anomaly detection and rate of change detection
+        to identify potential print failures.
+        
         Args:
             image_bytes: Raw image bytes from external camera
             current_layer: Current layer number
             
         Returns:
-            True if potential spaghetti/failure detected, False otherwise
+            True if potential spaghetti/failure detected (via baseline or rate anomaly), False otherwise
         """
         if not self._enabled or not self._monitoring_active:
             return False
