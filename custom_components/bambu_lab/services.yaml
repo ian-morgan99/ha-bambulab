@@ -343,6 +343,6 @@ confirm_incognito_deletion:
       name: Notification ID
       description: The notification ID provided in the incognito mode confirmation notification.
       required: true
-      example: "bambu_incognito_01ABCXYZ1234567890_1704850000"
+      example: "bambu_incognito_01ABCXYZ1234567890_TIMESTAMP_a1b2c3d4"
       selector:
         text:

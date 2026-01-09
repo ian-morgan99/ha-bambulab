@@ -335,6 +335,10 @@ class ImplicitFTP_TLS(ftplib.FTP_TLS):
 @dataclass
 class BambuClient:
     """Initialize Bambu Client to connect to MQTT Broker"""
+    # FTP LIST format constant: -rw-r--r-- 1 user group size date time filename
+    # Minimum number of fields before filename starts
+    FTP_LIST_MIN_FIELDS = 9
+    
     _watchdog = None
     _camera = None
     _mqtt = None
@@ -695,7 +699,17 @@ class BambuClient:
             print_filename: The name of the print file (e.g., "model.3mf" or "model.gcode")
             
         Returns:
-            List of dictionaries containing file information (path, directory, filename, timestamp)
+            list: A list of dictionaries containing file information with keys:
+                - 'path': Full file path on the SD card
+                - 'directory': Directory containing the file
+                - 'filename': Name of the file
+                - 'timestamp': File modification timestamp string
+            
+            Returns an empty list if:
+            - FTP is disabled on the client
+            - No print filename is provided
+            - No matching files are found
+            - FTP connection or scanning fails
         """
         if not self._enable_ftp:
             LOGGER.debug("FTP is disabled, skipping incognito mode file scan")
@@ -723,9 +737,6 @@ class BambuClient:
             # Directories to search for files
             search_dirs = ['/', '/cache', '/timelapse', '/timelapse/thumbnail']
             
-            # FTP LIST format: -rw-r--r-- 1 user group size date time filename
-            FTP_LIST_MIN_FIELDS = 9
-            
             for directory in search_dirs:
                 try:
                     LOGGER.debug(f"Incognito mode: Scanning {directory} for files")
@@ -739,7 +750,7 @@ class BambuClient:
                     for line in file_list:
                         try:
                             parts = line.split()
-                            if len(parts) < FTP_LIST_MIN_FIELDS:
+                            if len(parts) < self.FTP_LIST_MIN_FIELDS:
                                 continue
                             
                             filename = ' '.join(parts[8:])
@@ -785,8 +796,12 @@ class BambuClient:
             if ftp is not None:
                 try:
                     ftp.quit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    LOGGER.debug(
+                        "Incognito mode: Failed to close FTP connection cleanly: %s %s",
+                        type(e),
+                        e,
+                    )
         
         return files_to_delete
 
@@ -794,10 +809,22 @@ class BambuClient:
         """Delete specified files from the SD card via FTPS.
         
         Args:
-            file_paths: List of file paths to delete
+            file_paths: List of file paths to delete.
             
         Returns:
-            Dictionary with deleted_files and failed_deletions lists
+            dict: A dictionary with two keys:
+                - ``deleted_files``: list of file paths that were successfully deleted.
+                - ``failed_deletions``: list of file paths that could not be deleted.
+            
+            If FTP is disabled on the client, no FTP connection is attempted; the
+            function logs this condition and returns
+            ``{'deleted_files': [], 'failed_deletions': []}``.
+            
+            If establishing the FTP connection or performing the cleanup fails due
+            to an error, the function logs the error and still returns a dictionary
+            with ``deleted_files`` and ``failed_deletions`` lists (both will be
+            empty if no deletion attempts could be made). The function does not
+            raise exceptions for connection or cleanup failures.
         """
         if not self._enable_ftp:
             LOGGER.debug("FTP is disabled, skipping incognito mode file cleanup")
@@ -835,8 +862,12 @@ class BambuClient:
             if ftp is not None:
                 try:
                     ftp.quit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    LOGGER.debug(
+                        "Incognito mode: Failed to close FTP connection cleanly: %s %s",
+                        type(e),
+                        e,
+                    )
         
         return {'deleted_files': deleted_files, 'failed_deletions': failed_deletions}
 
