@@ -1001,21 +1001,26 @@ class PrintJob:
         # Detect layer change and trigger spaghetti analysis if monitoring is active
         if self.current_layer != old_current_layer and self.current_layer > 0:
             if self._client._device.spaghetti_detector.monitoring_active:
-                # Check if external camera is configured
+                # Always analyze internal camera if enabled
+                if self._client._device.spaghetti_detector.use_internal_camera:
+                    chamber_image = self._client._device.chamber_image.get_image()
+                    if chamber_image and len(chamber_image) > 0:
+                        LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, analyzing internal camera ({len(chamber_image)} bytes)")
+                        internal_alert = self._client._device.spaghetti_detector.analyze_internal_camera_on_layer_change(chamber_image, self.current_layer)
+                        if internal_alert and not self._client._device.spaghetti_detector.alert_triggered:
+                            self._client._device.spaghetti_detector._alert_triggered = True
+                            self._client._device.spaghetti_detector._cooldown_counter = self._client._device.spaghetti_detector._alert_cooldown_layers
+                            self._client.callback("event_spaghetti_detected")
+                    else:
+                        LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, but no internal camera image available")
+                
+                # Analyze external camera if configured
                 external_camera_entity_id = self._client._device.spaghetti_detector.external_camera_entity_id
                 if external_camera_entity_id:
                     # Store pending layer for external camera analysis - coordinator will handle image fetch
                     LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, pending external camera analysis for entity: {external_camera_entity_id}")
                     self._client._device.spaghetti_detector._pending_external_layer = self.current_layer
                     self._client.callback("event_layer_change_external_camera")
-                else:
-                    # Get chamber image for analysis (built-in camera)
-                    chamber_image = self._client._device.chamber_image.get_image()
-                    if chamber_image and len(chamber_image) > 0:
-                        LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, analyzing image ({len(chamber_image)} bytes)")
-                        self._client._device.spaghetti_detector.analyze_on_layer_change(chamber_image, self.current_layer)
-                    else:
-                        LOGGER.debug(f"Layer change detected: {old_current_layer} -> {self.current_layer}, but no chamber image available")
         
         self.ams_mapping = data.get("ams_mapping", self.ams_mapping)
         self._skipped_objects = data.get("s_obj", self._skipped_objects)
@@ -3676,9 +3681,20 @@ class SpaghettiDetector:
         # Test and monitoring state
         self._test_mode_data = None  # Stores results from manual test
         self._monitoring_active = False  # True when print is running
-        self._layer_history = []  # List of (layer, edge_density, timestamp) tuples
+        self._layer_history = []  # List of (layer, edge_density, timestamp) tuples - combined/primary
         self._max_history_size = 50  # Keep last 50 layer measurements
         self._last_analyzed_layer = -1  # Track last layer we analyzed
+        
+        # Dual camera tracking
+        self._internal_layer_history = []  # List of (layer, edge_density, timestamp) for internal camera
+        self._external_layer_history = []  # List of (layer, edge_density, timestamp) for external camera
+        self._internal_baseline_edge_map = None
+        self._external_baseline_edge_map = None
+        self._internal_previous_edge_density = 0.0
+        self._external_previous_edge_density = 0.0
+        self._internal_layers_since_baseline = 0
+        self._external_layers_since_baseline = 0
+        self._use_internal_camera = True  # Option to include/exclude internal camera
         
         # Rate of change detection
         self._rate_window_size = 5  # Calculate rate over last N layers
@@ -3712,6 +3728,15 @@ class SpaghettiDetector:
         self._layer_history = []
         self._last_analyzed_layer = -1
         self._monitoring_active = False
+        # Reset dual camera tracking
+        self._internal_layer_history = []
+        self._external_layer_history = []
+        self._internal_baseline_edge_map = None
+        self._external_baseline_edge_map = None
+        self._internal_previous_edge_density = 0.0
+        self._external_previous_edge_density = 0.0
+        self._internal_layers_since_baseline = 0
+        self._external_layers_since_baseline = 0
         LOGGER.debug("Spaghetti detector reset")
         
     def _convert_to_grayscale(self, image_bytes: bytearray) -> Image.Image:
@@ -3947,6 +3972,120 @@ class SpaghettiDetector:
         """Stop monitoring print for spaghetti detection."""
         self._monitoring_active = False
         LOGGER.info("Spaghetti detection monitoring stopped")
+    
+    def analyze_internal_camera_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
+        """Analyze internal camera image on layer change and track separately.
+        
+        Args:
+            image_bytes: Raw image bytes from internal camera
+            current_layer: Current layer number
+            
+        Returns:
+            True if potential spaghetti/failure detected, False otherwise
+        """
+        if not self._enabled or not self._monitoring_active or not self._use_internal_camera:
+            return False
+        
+        try:
+            # Convert and analyze image
+            gray_image = self._convert_to_grayscale(image_bytes)
+            if gray_image is None:
+                return False
+                
+            edge_map = self._compute_edge_map(gray_image)
+            if edge_map is None:
+                return False
+                
+            current_density = self._calculate_edge_density(edge_map)
+            
+            # Update internal camera baseline
+            self._internal_layers_since_baseline += 1
+            if self._internal_baseline_edge_map is None or self._internal_layers_since_baseline >= self._baseline_update_interval:
+                self._internal_baseline_edge_map = edge_map
+                self._internal_previous_edge_density = current_density
+                self._internal_layers_since_baseline = 0
+                LOGGER.debug(f"Internal camera baseline updated at layer {current_layer}, density={current_density:.4f}")
+            
+            # Add to internal history
+            timestamp = datetime.now()
+            self._internal_layer_history.append((current_layer, current_density, timestamp))
+            
+            # Trim history to max size
+            if len(self._internal_layer_history) > self._max_history_size:
+                self._internal_layer_history = self._internal_layer_history[-self._max_history_size:]
+            
+            # Check for anomalies
+            if self._internal_baseline_edge_map is not None:
+                baseline_density = self._calculate_edge_density(self._internal_baseline_edge_map)
+                anomaly = self._detect_anomaly(current_density, baseline_density, self._internal_previous_edge_density)
+                self._internal_previous_edge_density = current_density
+                
+                if anomaly:
+                    LOGGER.warning(f"Internal camera spaghetti detection ALERT at layer {current_layer}: edge_density={current_density:.4f}, baseline={baseline_density:.4f}")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            LOGGER.error(f"Error analyzing internal camera on layer change: {e}", exc_info=True)
+            return False
+    
+    def analyze_external_camera_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
+        """Analyze external camera image on layer change and track separately.
+        
+        Args:
+            image_bytes: Raw image bytes from external camera
+            current_layer: Current layer number
+            
+        Returns:
+            True if potential spaghetti/failure detected, False otherwise
+        """
+        if not self._enabled or not self._monitoring_active:
+            return False
+        
+        try:
+            # Convert and analyze image
+            gray_image = self._convert_to_grayscale(image_bytes)
+            if gray_image is None:
+                return False
+                
+            edge_map = self._compute_edge_map(gray_image)
+            if edge_map is None:
+                return False
+                
+            current_density = self._calculate_edge_density(edge_map)
+            
+            # Update external camera baseline
+            self._external_layers_since_baseline += 1
+            if self._external_baseline_edge_map is None or self._external_layers_since_baseline >= self._baseline_update_interval:
+                self._external_baseline_edge_map = edge_map
+                self._external_previous_edge_density = current_density
+                self._external_layers_since_baseline = 0
+                LOGGER.debug(f"External camera baseline updated at layer {current_layer}, density={current_density:.4f}")
+            
+            # Add to external history
+            timestamp = datetime.now()
+            self._external_layer_history.append((current_layer, current_density, timestamp))
+            
+            # Trim history to max size
+            if len(self._external_layer_history) > self._max_history_size:
+                self._external_layer_history = self._external_layer_history[-self._max_history_size:]
+            
+            # Check for anomalies
+            if self._external_baseline_edge_map is not None:
+                baseline_density = self._calculate_edge_density(self._external_baseline_edge_map)
+                anomaly = self._detect_anomaly(current_density, baseline_density, self._external_previous_edge_density)
+                self._external_previous_edge_density = current_density
+                
+                if anomaly:
+                    LOGGER.warning(f"External camera spaghetti detection ALERT at layer {current_layer}: edge_density={current_density:.4f}, baseline={baseline_density:.4f}")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            LOGGER.error(f"Error analyzing external camera on layer change: {e}", exc_info=True)
+            return False
     
     def analyze_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
         """Enhanced layer change analysis with historical tracking and rate detection.
@@ -4201,6 +4340,55 @@ class SpaghettiDetector:
         layer = self._pending_external_layer
         self._pending_external_layer = None
         return layer
+    
+    # Dual camera tracking properties
+    @property
+    def use_internal_camera(self) -> bool:
+        """Return True if internal camera is enabled for analysis."""
+        return self._use_internal_camera
+    
+    def set_use_internal_camera(self, value: bool):
+        """Set whether to use internal camera for analysis."""
+        self._use_internal_camera = value
+        LOGGER.info(f"Internal camera analysis {'enabled' if value else 'disabled'}")
+    
+    @property
+    def internal_layer_history(self) -> list:
+        """Return the historical layer data from internal camera."""
+        return self._internal_layer_history.copy()
+    
+    @property
+    def external_layer_history(self) -> list:
+        """Return the historical layer data from external camera."""
+        return self._external_layer_history.copy()
+    
+    @property
+    def internal_edge_density(self) -> float:
+        """Return the most recent edge density from internal camera."""
+        if self._internal_layer_history:
+            return self._internal_layer_history[-1][1]
+        return 0.0
+    
+    @property
+    def external_edge_density(self) -> float:
+        """Return the most recent edge density from external camera."""
+        if self._external_layer_history:
+            return self._external_layer_history[-1][1]
+        return 0.0
+    
+    @property
+    def internal_average_edge_density(self) -> float:
+        """Return the average edge density from internal camera."""
+        if not self._internal_layer_history:
+            return 0.0
+        return sum(d for _, d, _ in self._internal_layer_history) / len(self._internal_layer_history)
+    
+    @property
+    def external_average_edge_density(self) -> float:
+        """Return the average edge density from external camera."""
+        if not self._external_layer_history:
+            return 0.0
+        return sum(d for _, d, _ in self._external_layer_history) / len(self._external_layer_history)
 
 
 @dataclass
