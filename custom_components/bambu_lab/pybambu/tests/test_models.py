@@ -569,6 +569,56 @@ class TestSpaghettiDetector(unittest.TestCase):
         self.assertFalse(self.detector._alert_triggered)
         self.assertEqual(len(self.detector._layer_history), 0)
 
+    def test_enable_during_active_print_starts_monitoring(self):
+        """Test that enabling detection during an active print starts monitoring."""
+        # Mock a print job with RUNNING state
+        mock_print_job = MagicMock()
+        mock_print_job.gcode_state = "RUNNING"
+        self.client._device.print_job = mock_print_job
+        
+        # Initially disabled and not monitoring
+        self.detector._enabled = False
+        self.detector._monitoring_active = False
+        
+        # Enable detection
+        self.detector.enable()
+        
+        # Should be enabled and monitoring should be active
+        self.assertTrue(self.detector.is_enabled)
+        self.assertTrue(self.detector.monitoring_active)
+
+    def test_enable_during_idle_does_not_start_monitoring(self):
+        """Test that enabling detection when printer is idle doesn't start monitoring."""
+        # Mock a print job with IDLE state
+        mock_print_job = MagicMock()
+        mock_print_job.gcode_state = "IDLE"
+        self.client._device.print_job = mock_print_job
+        
+        # Initially disabled and not monitoring
+        self.detector._enabled = False
+        self.detector._monitoring_active = False
+        
+        # Enable detection
+        self.detector.enable()
+        
+        # Should be enabled but monitoring should NOT be active (no print running)
+        self.assertTrue(self.detector.is_enabled)
+        self.assertFalse(self.detector.monitoring_active)
+
+    def test_disable_stops_monitoring(self):
+        """Test that disabling detection stops monitoring."""
+        # Start with enabled and monitoring active
+        self.detector._enabled = True
+        self.detector.start_monitoring()
+        self.assertTrue(self.detector.monitoring_active)
+        
+        # Disable detection
+        self.detector.disable()
+        
+        # Should be disabled and monitoring should be stopped
+        self.assertFalse(self.detector.is_enabled)
+        self.assertFalse(self.detector.monitoring_active)
+
 
 if __name__ == '__main__':
     unittest.main()
