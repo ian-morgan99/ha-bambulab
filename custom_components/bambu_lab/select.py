@@ -87,17 +87,15 @@ class BambuLabExternalCameraSelect(BambuLabEntity, SelectEntity):
 
     def _update_options(self) -> None:
         """Update the list of available camera options."""
-        # Start with built-in camera option
-        options = ["Built-in Chamber Camera"]
-        
         # Get all camera and image entities from Home Assistant
+        camera_entities = []
         if self._hass and self._hass.states:
             for state in self._hass.states.async_all():
                 if state.domain in ["camera", "image"]:
-                    # Add entity_id as an option
-                    options.append(state.entity_id)
+                    camera_entities.append(state.entity_id)
         
-        self._attr_options = sorted(options)
+        # Sort camera entities and prepend built-in option
+        self._attr_options = ["Built-in Chamber Camera"] + sorted(camera_entities)
         self._options_loaded = True
 
     @property
