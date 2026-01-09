@@ -2153,6 +2153,61 @@ class PrintJob:
         
         return None
 
+    def _discover_ftp_directories(self, ftp) -> list:
+        """
+        Discover available directories on the FTP server.
+        
+        Returns list of directory paths in priority order.
+        """
+        # Known potential directories in priority order
+        # Based on various printer models and firmware versions
+        potential_dirs = [
+            '/ipcam',      # Active recordings during print (some models)
+            '/image',      # Image snapshots (some models)  
+            '/timelapse',  # Completed timelapses
+            '/cache',      # Cached files
+        ]
+        
+        discovered_dirs = []
+        
+        # Check root directory for these folders
+        try:
+            root_listing = []
+            ftp.retrlines('LIST /', lambda line: root_listing.append(line))
+            
+            for line in root_listing:
+                # Parse directory entries (start with 'd')
+                if line.startswith('d'):
+                    # Extract directory name (last field in LIST output)
+                    parts = line.split()
+                    if len(parts) >= 9:
+                        dir_name = parts[-1]
+                        dir_path = f'/{dir_name}'
+                        
+                        # Add if it's one of our known directories
+                        if dir_path in potential_dirs:
+                            discovered_dirs.append(dir_path)
+                            LOGGER.debug(f"Discovered FTP directory: {dir_path}")
+        except Exception as e:
+            LOGGER.debug(f"Error discovering FTP directories: {e}")
+        
+        # Always include root as fallback
+        discovered_dirs.append('/')
+        
+        # Sort by priority (maintain order from potential_dirs)
+        sorted_dirs = []
+        for dir_path in potential_dirs:
+            if dir_path in discovered_dirs:
+                sorted_dirs.append(dir_path)
+        
+        # Add any remaining discovered directories and root
+        for dir_path in discovered_dirs:
+            if dir_path not in sorted_dirs:
+                sorted_dirs.append(dir_path)
+        
+        LOGGER.debug(f"FTP directory search order: {sorted_dirs}")
+        return sorted_dirs
+
     async def async_get_last_image(self) -> dict:
         """Find and return the most recent image file (jpg, jpeg, png)."""
         loop = asyncio.get_event_loop()
@@ -2169,9 +2224,8 @@ class PrintJob:
             ftp = self._client.ftp_connection()
             LOGGER.debug(f"Connected to FTP for image search (index: {image_index})")
             
-            # Search paths to look for images
-            # Prioritize /ipcam for active recordings, then image folder, timelapse, then cache
-            search_paths = ['/ipcam', '/image', '/timelapse', '/cache', '/']
+            # Discover available directories on the FTP server
+            search_paths = self._discover_ftp_directories(ftp)
             image_extensions = ['.jpg', '.jpeg', '.png']
             
             all_images = []
@@ -2281,9 +2335,8 @@ class PrintJob:
             ftp = self._client.ftp_connection()
             LOGGER.debug(f"Connected to FTP for video search (index: {video_index}, offset: {frame_offset}s)")
             
-            # Search paths for videos
-            # Prioritize /ipcam for active recordings, then image folder, timelapse, then cache
-            search_paths = ['/ipcam', '/image', '/timelapse', '/cache', '/']
+            # Discover available directories on the FTP server
+            search_paths = self._discover_ftp_directories(ftp)
             video_extensions = ['.avi', '.mpg', '.mpeg', '.mp4']
             
             all_videos = []

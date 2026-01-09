@@ -19,16 +19,20 @@ ha core restart
 
 ## Changes Made
 
-### 1. Added `/ipcam` Folder to Search Paths
+### 1. Added `/ipcam` and `/image` Folders to Search Paths
 
 **Files Modified**: `custom_components/bambu_lab/pybambu/models.py`
 
 **Changes**:
-- Updated `_sync_get_last_video_frame()` to search `/ipcam` folder first, then `/timelapse`, `/cache`, and `/`
-- Updated `_sync_get_last_image()` to search `/ipcam` folder first, then `/timelapse`, `/cache`, and `/`
-- Prioritized `/ipcam` because it contains active recordings during prints
+- Updated `_sync_get_last_video_frame()` to search folders in order: `/ipcam`, `/image`, `/timelapse`, `/cache`, `/`
+- Updated `_sync_get_last_image()` to search folders in order: `/ipcam`, `/image`, `/timelapse`, `/cache`, `/`
+- Prioritized `/ipcam` for active recordings during prints
+- Added `/image` folder where some printers store snapshots
+- Falls back to `/timelapse` and `/cache` if files not found in priority folders
 
-**Why**: The "Get Last Frame" button was retrieving old videos from `/timelapse` instead of current recordings from `/ipcam`
+**Why**: 
+- The "Get Last Frame" button was retrieving old videos from `/timelapse` instead of current recordings from `/ipcam`
+- PNG files stored in `/image` folder were not being found
 
 ### 2. Improved Error Logging for FTPS
 
@@ -43,7 +47,8 @@ ha core restart
 
 **Understanding the New Error Messages**:
 - Old: `No image files found in /timelapse, /cache, /`
-- New: `No image files found in /ipcam, /timelapse, /cache (Failed to access: /)`
+- New: `No image files found in /ipcam, /image, /timelapse, /cache (Failed to access: /)`
+- The new message shows which paths were successfully searched and which failed
 - If you still see the old message format, you need to restart Home Assistant
 
 ### 3. External Camera Dropdown Selector
@@ -105,14 +110,15 @@ The old text entity (`text.<printer_name>_spaghetti_external_camera_entity_id`) 
 
 When you have an active print running with an external camera (e.g., ESP32-CAM) configured:
 
-1. During printing, videos/images are recorded to `/ipcam` folder
-2. "Get Last Frame" button retrieves the most recent file from `/ipcam` first
-3. If `/ipcam` doesn't exist or is empty, falls back to `/timelapse`, then `/cache`, then `/`
+1. During printing, videos/images are recorded to `/ipcam` and/or `/image` folders
+2. "Get Last Frame" button searches folders in priority order: `/ipcam` → `/image` → `/timelapse` → `/cache` → `/`
+3. Retrieves the most recent file from the first folder that has matching files
 4. On each layer change, spaghetti detection fetches image from selected camera (external or built-in)
 
 ### After Print Completes
 
 1. Videos are moved from `/ipcam` to `/timelapse` folder
+2. Images may remain in `/image` folder or be archived to `/timelapse`
 2. "Get Last Frame" will find the video in `/timelapse`
 3. This is normal behavior - the video is no longer being written
 
