@@ -9,7 +9,7 @@ import json
 # Add the parent directory to the Python path to find pybambu
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from pybambu.models import PrintJob, Info, AMSList, Extruder, HMSList, PrintError, Temperature
+from pybambu.models import PrintJob, Info, AMSList, Extruder, HMSList, PrintError, Temperature, SpaghettiDetector
 from pybambu.const import Printers
 
 class TestPrintJob(unittest.TestCase):
@@ -520,6 +520,54 @@ class TestH2D(unittest.TestCase):
         self.assertEqual(self.temperature.left_nozzle_target_temperature, 0)
 
 
+
+
+
+class TestSpaghettiDetector(unittest.TestCase):
+    def setUp(self):
+        self.client = MagicMock()
+        # Create a minimal device mock
+        self.client._device = MagicMock()
+        self.detector = SpaghettiDetector(self.client)
+
+    def test_monitoring_active_after_start(self):
+        """Test that monitoring remains active after start_monitoring is called."""
+        # Initially should be False
+        self.assertFalse(self.detector.monitoring_active)
+        
+        # Call start_monitoring
+        self.detector.start_monitoring()
+        
+        # monitoring_active should be True
+        self.assertTrue(self.detector.monitoring_active)
+        
+    def test_monitoring_inactive_after_stop(self):
+        """Test that monitoring becomes inactive after stop_monitoring is called."""
+        # Start monitoring first
+        self.detector.start_monitoring()
+        self.assertTrue(self.detector.monitoring_active)
+        
+        # Stop monitoring
+        self.detector.stop_monitoring()
+        
+        # monitoring_active should be False
+        self.assertFalse(self.detector.monitoring_active)
+        
+    def test_start_monitoring_resets_state(self):
+        """Test that start_monitoring resets detector state."""
+        # Set some state
+        self.detector._current_layer = 10
+        self.detector._alert_triggered = True
+        self.detector._layer_history = [(1, 0.1, 0), (2, 0.2, 0)]
+        
+        # Start monitoring
+        self.detector.start_monitoring()
+        
+        # State should be reset and monitoring should be active
+        self.assertTrue(self.detector.monitoring_active)
+        self.assertEqual(self.detector._current_layer, 0)
+        self.assertFalse(self.detector._alert_triggered)
+        self.assertEqual(len(self.detector._layer_history), 0)
 
 
 if __name__ == '__main__':
