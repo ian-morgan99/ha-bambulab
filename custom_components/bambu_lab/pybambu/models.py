@@ -1046,7 +1046,6 @@ class PrintJob:
             self._client.callback("event_print_started")
             
             # Reset and start spaghetti detector for new print
-            self._client._device.spaghetti_detector.reset()
             if self._client._device.spaghetti_detector.is_enabled:
                 self._client._device.spaghetti_detector.start_monitoring()
 
