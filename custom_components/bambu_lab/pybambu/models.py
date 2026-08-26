@@ -3691,6 +3691,14 @@ class SpaghettiDetector:
         self._rate_window_size = 5  # Calculate rate over last N layers
         self._rate_threshold = 0.10  # 10% increase over window = alert
         
+        # First-class UX: warm-up, re-arm, per-camera tracking
+        self._warmup_layers = 3  # Skip first N layers to establish baseline
+        self._clean_layers_for_rearm = 3  # Clean layers before re-arming alert
+        self._clean_layers_internal = 0
+        self._clean_layers_external = 0
+        self._last_score_internal = 0.0
+        self._last_score_external = 0.0
+        
         # External camera support
         self._external_camera_entity_id = ""  # Entity ID of external camera to use
         self._external_image_callback = None  # Callback to fetch image from external entity
@@ -3805,32 +3813,32 @@ class SpaghettiDetector:
             LOGGER.error(f"Error calculating edge density: {e}")
             return 0.0
             
-    def _detect_anomaly(self, current_density: float, baseline_density: float, previous_density: float) -> bool:
-        """Detect if the current edge density indicates a potential failure.
+    def _detect_anomaly(self, current_density: float, baseline_density: float, previous_density: float) -> float:
+        """Detect anomaly and return a confidence score (0.0 to 1.0).
         
-        Returns True if:
-        - Edge density increased significantly from baseline (new structures)
-        - Sudden jump in edge density (rapid growth)
+        Score combines:
+        - Baseline delta (new structures vs established baseline)
+        - Frame-to-frame delta (sudden growth)
+        - Rate of change over window
+        
+        Returns 0.0 when no anomaly, up to 1.0 for strong anomaly.
         """
-        if baseline_density == 0.0:
-            # No baseline yet, can't detect
-            return False
-            
-        # Calculate relative change from baseline
+        if baseline_density == 0.0 or previous_density == 0.0:
+            return 0.0
+        
+        # Baseline delta score (normalized by threshold)
         baseline_change = (current_density - baseline_density) / baseline_density if baseline_density > 0 else 0
+        baseline_score = max(0.0, min(1.0, baseline_change / self._edge_density_threshold))
         
-        # Calculate frame-to-frame change
+        # Frame-to-frame delta score
         frame_change = (current_density - previous_density) / previous_density if previous_density > 0 else 0
+        frame_score = max(0.0, min(1.0, frame_change / self._sudden_growth_threshold))
         
-        # Detect anomalies
-        baseline_anomaly = baseline_change > self._edge_density_threshold
-        sudden_anomaly = frame_change > self._sudden_growth_threshold
+        # Combined score: max of individual scores (any strong signal = anomaly)
+        score = max(baseline_score, frame_score)
         
-        if baseline_anomaly or sudden_anomaly:
-            LOGGER.debug(f"Spaghetti detection anomaly: baseline_change={baseline_change:.3f}, frame_change={frame_change:.3f}")
-            return True
-            
-        return False
+        LOGGER.debug(f"Spaghetti score: {score:.3f} (baseline_change={baseline_change:.3f}, frame_change={frame_change:.3f})")
+        return score
     
     def test_analyze_image(self, image_bytes: bytearray) -> dict:
         """Test method to analyze a single image and return detailed metrics.
@@ -3924,10 +3932,8 @@ class SpaghettiDetector:
         and start the cooldown period. It encapsulates the alert triggering logic.
         Also tracks consecutive alerts for pause-on-spaghetti functionality.
         """
-        if not self._alert_triggered:
-            self._alert_triggered = True
-            self._cooldown_counter = self._alert_cooldown_layers
-            self._client.callback("event_spaghetti_detected")
+        # Fire the event regardless of _alert_triggered state so re-occurrences after resolution can be reported
+        self._client.callback("event_spaghetti_detected")
         
         # Track consecutive alert layers for pause functionality
         self._consecutive_alert_layers += 1
@@ -3939,6 +3945,10 @@ class SpaghettiDetector:
             self._client.callback("event_spaghetti_pause_triggered")
             # Reset counter after triggering pause to avoid repeated pause attempts
             self._consecutive_alert_layers = 0
+        
+        # Set alert triggered state (kept for status reporting, but no longer latches event firing)
+        if not self._alert_triggered:
+            self._alert_triggered = True
     
     def _analyze_camera_image(self, image_bytes: bytearray, current_layer: int, 
                              camera_type: str, history: list, baseline_edge_map, 
@@ -3989,24 +3999,27 @@ class SpaghettiDetector:
         if len(updated_history) > self._max_history_size:
             updated_history = updated_history[-self._max_history_size:]
         
-        # Check for baseline anomalies
-        anomaly = False
+        # Check for baseline anomalies (now returns float score 0.0-1.0)
+        score = 0.0
         if new_baseline_edge_map is not None:
             baseline_density = self._calculate_edge_density(new_baseline_edge_map)
-            anomaly = self._detect_anomaly(current_density, baseline_density, new_previous_density)
+            score = self._detect_anomaly(current_density, baseline_density, new_previous_density)
             new_previous_density = current_density
             
-            if anomaly:
-                LOGGER.warning(f"{camera_type.capitalize()} camera spaghetti detection ALERT at layer {current_layer}: edge_density={current_density:.4f}, baseline={baseline_density:.4f}")
+            if score > 0.0:
+                LOGGER.warning(f"{camera_type.capitalize()} camera spaghetti score={score:.3f} at layer {current_layer}: density={current_density:.4f}, baseline={baseline_density:.4f}")
         
         # Check for rate of change anomalies if we have enough history
-        rate_anomaly = False
+        rate_score = 0.0
         if len(updated_history) >= self._rate_window_size:
-            rate_anomaly = self._check_rate_of_change_for_history(updated_history)
-            if rate_anomaly:
-                LOGGER.warning(f"{camera_type.capitalize()} camera spaghetti detection RATE ALERT at layer {current_layer}: rapid increase detected")
+            rate_score = 1.0 if self._check_rate_of_change_for_history(updated_history) else 0.0
+            if rate_score > 0.0:
+                LOGGER.warning(f"{camera_type.capitalize()} camera spaghetti RATE score={rate_score:.3f} at layer {current_layer}")
         
-        return (anomaly or rate_anomaly, current_density, new_baseline_edge_map, 
+        # Combined score: max of baseline and rate scores
+        combined_score = max(score, rate_score)
+        
+        return (combined_score, current_density, new_baseline_edge_map,
                 new_previous_density, new_layers_since_baseline, updated_history)
     
     def _check_rate_of_change_for_history(self, history: list) -> bool:
@@ -4038,24 +4051,33 @@ class SpaghettiDetector:
         
         return rate > self._rate_threshold
     
-    def analyze_internal_camera_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
-        """Analyze internal camera image on layer change and track separately.
-        
-        Performs both baseline anomaly detection and rate of change detection
-        to identify potential print failures.
-        
-        Args:
-            image_bytes: Raw image bytes from internal camera
-            current_layer: Current layer number
-            
-        Returns:
-            True if potential spaghetti/failure detected (via baseline or rate anomaly), False otherwise
-        """
+    def analyze_internal_camera_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> float:
+        """Analyze internal camera image and return anomaly score (0.0-1.0)."""
         if not self._enabled or not self._monitoring_active or not self._use_internal_camera:
-            return False
+            return 0.0
+        
+        # Warm-up: skip first layers to establish baseline
+        if current_layer <= self._warmup_layers:
+            LOGGER.debug(f"Internal camera warm-up at layer {current_layer}")
+            # Still update history but don't score
+            try:
+                gray_image = self._convert_to_grayscale(image_bytes)
+                if gray_image:
+                    edge_map = self._compute_edge_map(gray_image)
+                    if edge_map:
+                        density = self._calculate_edge_density(edge_map)
+                        self._internal_layer_history.append((current_layer, density, datetime.now()))
+                        if len(self._internal_layer_history) > self._max_history_size:
+                            self._internal_layer_history = self._internal_layer_history[-self._max_history_size:]
+                        self._internal_previous_edge_density = density
+                        self._last_analyzed_edge_density = density
+                        self._last_analyzed_layer_num = current_layer
+            except Exception:
+                pass
+            return 0.0
         
         try:
-            (anomaly, current_density, new_baseline, new_previous, 
+            (anomaly, current_density, new_baseline, new_previous,
              new_layers_since, updated_history) = self._analyze_camera_image(
                 image_bytes, current_layer, "internal",
                 self._internal_layer_history,
@@ -4064,46 +4086,61 @@ class SpaghettiDetector:
                 self._internal_layers_since_baseline
             )
             
-            # Update internal camera state
+            # Update state
             self._internal_baseline_edge_map = new_baseline
             self._internal_previous_edge_density = new_previous
             self._internal_layers_since_baseline = new_layers_since
             self._internal_layer_history = updated_history
             
-            # Save last analyzed image with its edge density
+            # Save last analyzed
             self._last_analyzed_image = image_bytes.copy() if image_bytes else bytearray()
             self._last_analyzed_timestamp = datetime.now()
             self._last_analyzed_layer_num = current_layer
             self._last_analyzed_edge_density = current_density
             
-            # Reset consecutive alert counter if no anomaly detected
-            if not anomaly:
-                self._consecutive_alert_layers = 0
+            # Compute score (anomaly is now float 0.0-1.0)
+            score = float(anomaly) if isinstance(anomaly, (int, float)) else (1.0 if anomaly else 0.0)
+            self._last_score_internal = score
             
-            return anomaly
+            # Re-arm logic: clean streak resets alert
+            if score > 0.0:
+                self._clean_layers_internal = 0
+                self._consecutive_alert_layers += 1
+            else:
+                self._clean_layers_internal += 1
+                if self._clean_layers_internal >= self._clean_layers_for_rearm:
+                    self._consecutive_alert_layers = max(0, self._consecutive_alert_layers - 1)
             
+            return score
         except Exception as e:
-            LOGGER.error(f"Error analyzing internal camera on layer change: {e}", exc_info=True)
-            return False
+            LOGGER.error(f"Error analyzing internal camera: {e}", exc_info=True)
+            return 0.0
     
-    def analyze_external_camera_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> bool:
-        """Analyze external camera image on layer change and track separately.
-        
-        Performs both baseline anomaly detection and rate of change detection
-        to identify potential print failures.
-        
-        Args:
-            image_bytes: Raw image bytes from external camera
-            current_layer: Current layer number
-            
-        Returns:
-            True if potential spaghetti/failure detected (via baseline or rate anomaly), False otherwise
-        """
+    def analyze_external_camera_on_layer_change(self, image_bytes: bytearray, current_layer: int) -> float:
+        """Analyze external camera image and return anomaly score (0.0-1.0)."""
         if not self._enabled or not self._monitoring_active:
-            return False
+            return 0.0
+        
+        # Warm-up for external camera
+        if current_layer <= self._warmup_layers:
+            try:
+                gray_image = self._convert_to_grayscale(image_bytes)
+                if gray_image:
+                    edge_map = self._compute_edge_map(gray_image)
+                    if edge_map:
+                        density = self._calculate_edge_density(edge_map)
+                        self._external_layer_history.append((current_layer, density, datetime.now()))
+                        if len(self._external_layer_history) > self._max_history_size:
+                            self._external_layer_history = self._external_layer_history[-self._max_history_size:]
+                        self._external_previous_edge_density = density
+                        self._last_analyzed_edge_density = density
+                        self._last_analyzed_layer_num = current_layer
+            except Exception:
+                pass
+            return 0.0
         
         try:
-            (anomaly, current_density, new_baseline, new_previous, 
+            (score, current_density, new_baseline, new_previous,
              new_layers_since, updated_history) = self._analyze_camera_image(
                 image_bytes, current_layer, "external",
                 self._external_layer_history,
@@ -4112,17 +4149,30 @@ class SpaghettiDetector:
                 self._external_layers_since_baseline
             )
             
-            # Update external camera state
             self._external_baseline_edge_map = new_baseline
             self._external_previous_edge_density = new_previous
             self._external_layers_since_baseline = new_layers_since
             self._external_layer_history = updated_history
             
-            return anomaly
+            self._last_analyzed_image = image_bytes.copy() if image_bytes else bytearray()
+            self._last_analyzed_timestamp = datetime.now()
+            self._last_analyzed_layer_num = current_layer
+            self._last_analyzed_edge_density = current_density
             
+            # Per-camera clean-streak re-arm
+            if score > 0.0:
+                self._clean_layers_external = 0
+                self._consecutive_alert_layers += 1
+            else:
+                self._clean_layers_external += 1
+                if self._clean_layers_external >= self._clean_layers_for_rearm:
+                    self._consecutive_alert_layers = max(0, self._consecutive_alert_layers - 1)
+            
+            self._last_score_external = score
+            return score
         except Exception as e:
-            LOGGER.error(f"Error analyzing external camera on layer change: {e}", exc_info=True)
-            return False
+            LOGGER.error(f"Error analyzing external camera: {e}", exc_info=True)
+            return 0.0
     
     
     @property
